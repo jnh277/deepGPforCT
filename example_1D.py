@@ -4,18 +4,45 @@ from matplotlib import pyplot as plt
 import gp_regression as gpr
 
 
-n = 10
+n = 20
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0, 2 * math.pi, n)
-train_y = 1*torch.sin(torch.squeeze(train_x, 1)) + torch.randn(n) * 0.2
+train_y = torch.sin(2*torch.squeeze(train_x, 1)) + torch.randn(n) * 0.2
 
 test_x = torch.Tensor(100, 1)
 test_x[:, 0] = torch.linspace(0, 2*math.pi, 100)
 
-model = gpr.GP_1D(sigma_f=1.0, lengthscale=0.5, sigma_n=0.2)
-test_f, cov_f = model(train_x, train_y, test_x)
+model = gpr.GP_1D(sigma_f=1.0, lengthscale=1, sigma_n=1)
+# c, v = model(train_x, train_y)
 
 print(model)
+
+nLL = gpr.NegMarginalLogLikelihood()  # this is the loss function
+
+optimizer = torch.optim.Adam([
+    {'params': model.parameters()},
+], lr=0.005)
+
+training_iterations = 200
+
+
+def train():
+    for i in range(training_iterations):
+        # Zero backprop gradients
+        optimizer.zero_grad()
+        # Get output from model
+        test_f, cov_f, c, v = model(train_x, train_y, test_x)
+        # Calc loss and backprop derivatives
+        loss = nLL(train_y, c, v)
+        loss.backward()
+        print('Iter %d/%d - Loss: %.3f' % (i + 1, training_iterations, loss.item()))
+        optimizer.step()
+
+
+train()
+
+# now make predictions
+test_f, cov_f, _, _ = model(train_x,train_y,test_x)
 
 with torch.no_grad():
     fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
