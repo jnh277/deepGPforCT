@@ -18,7 +18,7 @@ class GP_1D(nn.Module):
         self.training = True        # initially we want to be in training mode
 
     # the predict forward function
-    def forward(self, x_train, y_train, x_test):
+    def forward(self, x_train, y_train, x_test=None):
         # See the autograd section for explanation of what happens here.
         n = x_train.size(0)
         d = 0.5*(x_train - x_train.t()).pow(2)/self.lengthscale.pow(2)
@@ -26,16 +26,20 @@ class GP_1D(nn.Module):
         c = torch.cholesky(kyy, upper=True)
         # v = torch.potrs(y_train, c, upper=True)
         v, _ = torch.gesv(y_train, kyy)
+        if x_test is None:
+            out = (c, v)
 
-        with torch.no_grad():
-            d = 0.5*(x_test - x_train.t()).pow(2)/self.lengthscale.pow(2)
-            kfy = self.sigma_f.pow(2)*torch.exp(-d)
-            # solve
-            f_test = kfy.mm(v)
-            tmp = torch.potrs(kfy.t(), c, upper=True)
-            tmp = torch.sum(kfy * tmp.t(), dim=1)
-            cov_f = self.sigma_f.pow(2) - tmp
-        return f_test, cov_f, c, v
+        if x_test is not None:
+            with torch.no_grad():
+                d = 0.5*(x_test - x_train.t()).pow(2)/self.lengthscale.pow(2)
+                kfy = self.sigma_f.pow(2)*torch.exp(-d)
+                # solve
+                f_test = kfy.mm(v)
+                tmp = torch.potrs(kfy.t(), c, upper=True)
+                tmp = torch.sum(kfy * tmp.t(), dim=1)
+                cov_f = self.sigma_f.pow(2) - tmp
+            out = (f_test, cov_f)
+        return out
 
 
     def extra_repr(self):

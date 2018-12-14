@@ -31,7 +31,7 @@ def train():
         # Zero backprop gradients
         optimizer.zero_grad()
         # Get output from model
-        test_f, cov_f, c, v = model(train_x, train_y, test_x)
+        c, v = model(train_x, train_y)
         # Calc loss and backprop derivatives
         loss = nLL(train_y, c, v)
         loss.backward()
@@ -42,7 +42,7 @@ def train():
 train()
 
 # now make predictions
-test_f, cov_f, _, _ = model(train_x,train_y,test_x)
+test_f, cov_f = model(train_x,train_y,test_x)
 
 with torch.no_grad():
     fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
