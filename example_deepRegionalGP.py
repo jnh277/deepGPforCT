@@ -4,13 +4,13 @@ import gp_regression as gpr
 from matplotlib import pyplot as plt
 
 
-n = 30
+n = 20
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0, 1, n)
 train_y = 0.5*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
 train_y[torch.squeeze(train_x, 1) > 0.5] = train_y[torch.squeeze(train_x, 1) > 0.5] + 1
 train_y[torch.squeeze(train_x, 1) <= 0.5] = train_y[torch.squeeze(train_x, 1) <= 0.5]-1
-train_y = train_y + torch.randn(train_y.size()) * 0.1
+train_y = train_y + torch.randn(train_y.size()) * 0.2
 
 train_body = train_x > 0.5
 
@@ -53,7 +53,7 @@ class DeepGP(torch.nn.Module):
         self.feature_extractor = feature_extractor
         self.gp = gpr.GP_SE_R(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
 
-    def forward(self, x_train, y_train, x_test=None):
+    def forward(self, x_train, y_train, x_test=None,classify=False):
         """
         In the forward function we accept a Tensor of input data and we must return
         a Tensor of output data. We can use Modules defined in the constructor as
@@ -64,7 +64,7 @@ class DeepGP(torch.nn.Module):
             h2 = self.feature_extractor(x_test)
         else:
             h2 = None
-        out = self.gp(x_train,y_train,h,x_test,h2)
+        out = self.gp(x_train,y_train,h,x_test,h2,classify=classify)
         return out
 
 
@@ -82,12 +82,12 @@ optimizer = torch.optim.Adam([
 training_iterations = 400
 
 
-def train():
+def train(classify=False):
     for i in range(training_iterations):
         # Zero backprop gradients
         optimizer.zero_grad()
         # Get output from model
-        c, v = model(train_x, train_y)
+        c, v = model(train_x, train_y,classify=classify)
         # Calc loss and backprop derivatives
         loss = nLL(train_y, c, v)
         loss.backward()
@@ -97,8 +97,15 @@ def train():
 
 train()
 
+# now set to classify = true and train only the gp parameters
+optimizer = torch.optim.Adam([
+    {'params': model.gp.parameters()}
+], lr=0.005)
 
-test_f, cov_f = model(train_x, train_y, test_x)
+training_iterations = 400
+train(classify=True)
+
+test_f, cov_f = model(train_x, train_y, test_x, classify=True)
 est_B = feature_extractor(test_x)
 classified = est_B > 0.5
 
