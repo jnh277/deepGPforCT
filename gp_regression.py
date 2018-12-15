@@ -112,3 +112,75 @@ class NegMarginalLogLikelihood(nn.Module):
     def forward(self, y, c, v):
         nLL = torch.dot(y, v.squeeze())/2 + torch.sum(torch.log(c.diag()))
         return nLL
+
+
+class GP_SE_R(nn.Module):
+    def __init__(self, sigma_f, lengthscale, sigma_n):
+        super(GP_SE_R, self).__init__()
+        # nn.Parameter is a special kind of Tensor, that will get
+        # automatically registered as Module's parameter once it's assigned
+        # as an attribute. Parameters and buffers need to be registered, or
+        # they won't appear in .parameters() (doesn't apply to buffers), and
+        # won't be converted when e.g. .cuda() is called. You can use
+        # .register_buffer() to register buffers.
+        # nn.Parameters require gradients by default.
+        self.sigma_f = nn.Parameter(torch.Tensor([sigma_f]))
+        self.lengthscale = nn.Parameter(torch.as_tensor(lengthscale, dtype=torch.float))
+        self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
+
+    # the predict forward function
+    def forward(self, x_train, y_train, body_train, x_test=None, body_test=None):
+        # See the autograd section for explanation of what happens here.
+        n = x_train.size(0)
+        p = x_train.size(-1)
+        d = torch.zeros(n, n)
+
+        nB = body_train.size(1)         # number of regions/bodies
+        if x_test is not None:  # i.e we are predicting not training
+            body_train = body_train > 0.5
+
+        nullB = torch.sqrt(1-torch.sum(body_train.float().pow(2),1))
+
+        for i in range(p):
+            d += 0.5*(x_train[:,i].unsqueeze(1) - x_train[:,i].unsqueeze(0)).pow(2)/self.lengthscale[i].pow(2)
+
+        kse = self.sigma_f.pow(2)*torch.exp(-d) + self.sigma_n.pow(2) * torch.eye(n)
+
+        kyy = nullB.unsqueeze(0)*nullB.unsqueeze(1)*kse
+        for i in range(nB):
+            kyy += body_train[:,i].float().unsqueeze(1)*body_train[:,i].float().unsqueeze(0)*kse
+
+        c = torch.cholesky(kyy, upper=True)
+        # v = torch.potrs(y_train, c, upper=True)
+        v, _ = torch.gesv(y_train, kyy)
+        if x_test is None:
+            out = (c, v)
+
+        if x_test is not None:
+            with torch.no_grad():
+                body_test = body_test > 0.5         # make a distinct classifier
+                nullB_test = torch.sqrt(1 - torch.sum(body_test.float().pow(2), 1))
+                ntest = x_test.size(0)
+                d = torch.zeros(ntest, n)
+                for i in range(p):
+                    d += 0.5 * (x_test[:, i].unsqueeze(1) - x_train[:, i].unsqueeze(0)).pow(2) / self.lengthscale[i].pow(2)
+                kse = self.sigma_f.pow(2)*torch.exp(-d)
+                kfy = nullB_test.unsqueeze(1) * nullB.unsqueeze(0) * kse
+                for i in range(nB):
+                    kfy += body_test[:, i].float().unsqueeze(1) * body_train[:, i].float().unsqueeze(0) * kse
+
+                # solve
+                f_test = kfy.mm(v)
+                tmp = torch.potrs(kfy.t(), c, upper=True)
+                tmp = torch.sum(kfy * tmp.t(), dim=1)
+                cov_f = self.sigma_f.pow(2) - tmp
+            out = (f_test, cov_f)
+        return out
+
+
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'sigma_f={}, lengthscale={}, sigma_n={}'.format(
+            self.sigma_f.item(), self.lengthscale.item(), self.sigma_n.item()
+        )
