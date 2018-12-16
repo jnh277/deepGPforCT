@@ -2,7 +2,7 @@ import torch
 import math
 from matplotlib import pyplot as plt
 import gp_regression_cpy as gpr
-
+import numpy as np
 
 def truefunc(omega,points):
     return torch.sin(torch.squeeze(points,1) * omega)
@@ -61,6 +61,9 @@ with torch.no_grad():
     fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
     # Plot true function as solid black
     ax.plot(test_x.numpy(), truefunc(omega,test_x).numpy(), 'k')
+    # plot integral regions
+    for i in range(n):
+        ax.plot(train_x[i,:].numpy(),np.zeros(2)+0.02*i)
     # Plot training data as black stars
     #ax.plot(train_x.numpy(), train_y.numpy(), 'k*')
     upper = torch.squeeze(test_f, 1) + cov_f.pow(0.5)
@@ -71,3 +74,4 @@ with torch.no_grad():
     ax.set_ylim([-2, 2])
     ax.legend(['Observed Data', 'Mean', 'Confidence'])
     plt.show()
+
