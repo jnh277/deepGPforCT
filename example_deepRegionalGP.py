@@ -25,9 +25,9 @@ lengthscales = torch.ones(1)
 class LargeFeatureExtractor(torch.nn.Sequential):
     def __init__(self):
         super(LargeFeatureExtractor, self).__init__()
-        self.add_module('linear1', torch.nn.Linear(data_dim, 6))
+        self.add_module('linear1', torch.nn.Linear(data_dim, 10))
         self.add_module('Tanh1', torch.nn.Tanh())
-        self.add_module('linear2', torch.nn.Linear(6, 3))
+        self.add_module('linear2', torch.nn.Linear(10, 3))
         self.add_module('Tanh2', torch.nn.Tanh())
         self.add_module('linear3', torch.nn.Linear(3, 1))
         self.add_module('Sigmoid3', torch.nn.Sigmoid())     # final layer should output between 0 and 1
@@ -79,7 +79,7 @@ optimizer = torch.optim.Adam([
     {'params': model.gp.parameters()}
 ], lr=0.005)
 
-training_iterations = 400
+training_iterations = 800
 
 
 def train(classify=False):
@@ -102,7 +102,7 @@ optimizer = torch.optim.Adam([
     {'params': model.gp.parameters()}
 ], lr=0.005)
 
-training_iterations = 400
+training_iterations = 200
 train(classify=True)
 
 test_f, cov_f = model(train_x, train_y, test_x, classify=True)

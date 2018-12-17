@@ -7,13 +7,13 @@ from matplotlib import pyplot as plt
 
 from math import floor
 
-n = 300
+n = 20
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0, 1, n)
-train_y = 0.25*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
+train_y = 0.5*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
 train_y[torch.squeeze(train_x, 1) > 0.5] = train_y[torch.squeeze(train_x, 1) > 0.5] + 1
-# train_y[torch.squeeze(train_x, 1) <= 0.5] = train_y[torch.squeeze(train_x, 1) <= 0.5]
-train_y = train_y + torch.randn(train_y.size()) * 0.05
+train_y[torch.squeeze(train_x, 1) <= 0.5] = train_y[torch.squeeze(train_x, 1) <= 0.5] - 1
+train_y = train_y + torch.randn(train_y.size()) * 0.2
 
 test_x = torch.Tensor(100, 1)
 test_x[:, 0] = torch.linspace(0, 1, 100)
@@ -32,9 +32,9 @@ class DeepGP(torch.nn.Module):
         member variables.
         """
         super(DeepGP, self).__init__()
-        self.linear1 = torch.nn.Linear(1, 6)
+        self.linear1 = torch.nn.Linear(1, 100)
         self.tanh1 = torch.nn.Tanh()
-        self.linear2 = torch.nn.Linear(6, 2)
+        self.linear2 = torch.nn.Linear(100, 2)
         self.tanh2 = torch.nn.Sigmoid()
         self.gp = gpr.GP_SE(sigma_f=1.0, lengthscale=[1, 1], sigma_n=1)
 
