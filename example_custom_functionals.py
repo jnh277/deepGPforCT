@@ -132,6 +132,11 @@ sum_x.backward()
 print(A.grad)
 print(B.grad)
 
+input = (torch.randn(3,3,dtype=torch.double,requires_grad=True), torch.randn(3,1,dtype=torch.double,requires_grad=True))
+test = gradcheck(myDot, input, eps=1e-6, atol=1e-4)
+print('Gradient check of MyLinSolve')
+print(test)
+
 
 class MySumLinSolve(torch.autograd.Function):
     @staticmethod
