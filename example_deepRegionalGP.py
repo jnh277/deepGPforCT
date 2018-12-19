@@ -4,7 +4,7 @@ import gp_regression as gpr
 from matplotlib import pyplot as plt
 
 
-n = 20
+n = 40
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0, 1, n)
 train_y = 0.5*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
@@ -25,9 +25,9 @@ lengthscales = torch.ones(1)
 class LargeFeatureExtractor(torch.nn.Sequential):
     def __init__(self):
         super(LargeFeatureExtractor, self).__init__()
-        self.add_module('linear1', torch.nn.Linear(data_dim, 10))
+        self.add_module('linear1', torch.nn.Linear(data_dim, 100))
         self.add_module('Tanh1', torch.nn.Tanh())
-        self.add_module('linear2', torch.nn.Linear(10, 3))
+        self.add_module('linear2', torch.nn.Linear(100, 3))
         self.add_module('Tanh2', torch.nn.Tanh())
         self.add_module('linear3', torch.nn.Linear(3, 1))
         self.add_module('Sigmoid3', torch.nn.Sigmoid())     # final layer should output between 0 and 1

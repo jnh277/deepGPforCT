@@ -1,8 +1,9 @@
 import torch
 import math
 from matplotlib import pyplot as plt
-import gp_regression_cpy as gpr
+import gp_regression as gpr
 import numpy as np
+
 
 def truefunc(omega,points):
     return torch.sin(torch.squeeze(points,1) * omega)
