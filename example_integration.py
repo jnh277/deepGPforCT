@@ -31,15 +31,16 @@ b = 1.5
 
 
 simpsons = int.Simpsons()
-simpsons2 = int.Simpsons2()
+
 
 Itrue = 4.1875
-I = simpsons(func, a, b, 300)       # n must be a multiple of 2
-I2 = simpsons2(func, a, b, 300)     # n must be a multiple of 3
+I = simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
+
+
 print(I.item())
-print(I2.item())
-# I.backward()
-# print(a0.grad)
+
+I.backward()
+print(a0.grad)
 
 
 
