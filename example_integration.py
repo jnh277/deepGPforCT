@@ -31,17 +31,17 @@ a = -1
 b = 1.5
 
 
-simpsons = int.Simpsons(fcount_out=True)
+simpsons = int.Simpsons(fcount_out=True, fcount_max=None, hmin=None)
 
 
-Itrue = 4.1875
-I, fcount = simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
+# Itrue = 4.1875
+I, fcount= simpsons(func, a, b, 1e-8)       # n must be a multiple of 2
 
 
 print(I.item())
 print(fcount)
-# I.backward()
-# print(a0.grad)
+I.backward()
+print(a0.grad)
 
 
 
