@@ -25,22 +25,23 @@ a1 = torch.randn(1, requires_grad=True)
 a0 = torch.ones(1, requires_grad=True)
 
 func = lambda x: quadratic(x, a0, 2.0, 0.3)
+# func = torch.sin
 
 a = -1
 b = 1.5
 
 
-simpsons = int.Simpsons()
+simpsons = int.Simpsons(fcount_out=True)
 
 
 Itrue = 4.1875
-I = simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
+I, fcount = simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
 
 
 print(I.item())
-
-I.backward()
-print(a0.grad)
+print(fcount)
+# I.backward()
+# print(a0.grad)
 
 
 
