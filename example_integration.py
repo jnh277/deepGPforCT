@@ -35,7 +35,7 @@ simpsons = int.Simpsons(fcount_out=True, fcount_max=None, hmin=None)
 
 
 # Itrue = 4.1875
-I, fcount= simpsons(func, a, b, 1e-8)       # n must be a multiple of 2
+I, fcount= simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
 
 
 print(I.item())
@@ -50,14 +50,16 @@ def quadratic_2D(x, y):
 
 func = lambda x,y: quadratic_2D(x,y)
 
-simpsons2D = int.Simpsons2D()
+simpsons2D = int.Simpsons2D(fcount_out=True, fcount_max=3000)
 
-I = simpsons2D(func, 0, 1, 0, 1, 1e-6)
-
+I, fcount = simpsons2D(func, 0, 1, 0, 1, 1e-6)
+# correctintegral is 2.2964
 print(I)
+print(fcount)
 
 func = lambda x,y: torch.sin(x) + torch.cos(y)
 
-I = simpsons2D(func, 0, 1, 0, 1, 1e-6)
+I, fcount = simpsons2D(func, 0, 1, 0, 5, 1e-6)
 print(I)
+print(fcount)
 # correct integral is 1.301168678939781

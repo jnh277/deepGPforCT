@@ -51,7 +51,7 @@ class Simpsons(nn.Module):
         at = torch.as_tensor(a, dtype=torch.float32)
         bt = torch.as_tensor(b, dtype=torch.float32)
         if self.hmin is None:
-            self.hmin = abs(bt-at)*1e-10
+            self.hmin = abs(bt-at)*1e-6
         if self.count:
             self.fcount = 0
             result = self._simps_adaptive(method, at, bt, eps)
@@ -93,6 +93,9 @@ class Simpsons2D(nn.Module):
         for i in [1, 3, 4, 5, 7]:
             fp[i] = f(x[i], y[i])
 
+        if self.count:
+            self.fcount += 5
+
         hx = abs(x[2] - x[0])
         hy = abs(y[6] - y[0])
         result = hx*hy/12.0*(-fp[0]+4.0*fp[1]-fp[2]+4.0*fp[3]+4.0*fp[5]-fp[6]+4.0*fp[7]-fp[8])
@@ -105,10 +108,14 @@ class Simpsons2D(nn.Module):
             vo[6] = v[3]
             vo[2] = v[1]
             vo[8] = v[4]
+            # vo[5] = v[9]
+            # vo[7] = v[10]
         elif q is 1:
             vo[8] = v[5]
             vo[6] = v[4]
             vo[0] = v[1]
+            # vo[3] = v[9]
+            # vo[7] = v[11]
         elif q is 2:
             vo[8] = v[7]
             vo[2] = v[4]
@@ -124,6 +131,12 @@ class Simpsons2D(nn.Module):
         Efficient recursive implementation of adaptive Simpson's rule.
         Function values at the start, middle, end of the intervals are retained.
         """
+        # x[9] = x[1]; y[9] = (y[1] + y[4])/2.0       # avoid calculating these twice
+        # x[10] = (x[4] + x[3])/2.0; y[10] = y[3]
+        # x[11] = (x[5] + x[4])/2.0; y[11] = y[3]
+        # x[12] = x[4]; y[12] = (y[1] + y[4])/2.0
+        # for i in [9,10,11,12]:
+        #     fp[i] = f(x[i], y[i])
 
         xq0, yq0, fq0, q0 = self._quad_simpsons2D_mem(f, self._q(x, 0), self._q(y, 0), self._q(fp, 0))
         xq1, yq1, fq1, q1 = self._quad_simpsons2D_mem(f, self._q(x, 1), self._q(y, 1), self._q(fp, 1))
@@ -131,7 +144,7 @@ class Simpsons2D(nn.Module):
         xq3, yq3, fq3, q3 = self._quad_simpsons2D_mem(f, self._q(x, 3), self._q(y, 3), self._q(fp, 3))
         sum_q = q0 + q1 + q2 + q3
         delta = sum_q - whole
-        if abs(delta) <= 15.0 * eps:
+        if abs(delta) <= 15.0 * eps or self.fcount > self.fcount_max or min(abs(xq0[1]-xq0[0]), abs(yq0[3]-yq0[0])) < self.hmin:
             result = sum_q + delta / 15.0
         else:
             result = self._quad2D_asr(f, xq0, yq0, fq0, eps/4.0, q0) + \
@@ -142,9 +155,9 @@ class Simpsons2D(nn.Module):
 
     def _simps2D_adaptive(self, f, xa, xb, ya, yb, eps):
         """Integrate f from a to b using Adaptive Simpson's Rule with max error of eps."""
-        fp = torch.Tensor(9)
-        x = torch.Tensor(9)
-        y = torch.Tensor(9)
+        fp = torch.Tensor(13)
+        x = torch.Tensor(13)
+        y = torch.Tensor(13)
         x[0] = xa; y[0] = ya
         x[2] = xb; y[2] = ya
         x[6] = xa; y[6] = yb
@@ -153,12 +166,24 @@ class Simpsons2D(nn.Module):
         for i in [0, 2, 6, 8]:
             fp[i] = f(x[i], y[i])
 
+        if self.count:
+            self.fcount += 4
+
         x, y, fp, whole = self._quad_simpsons2D_mem(f, x, y, fp)
         return self._quad2D_asr(f, x, y, fp, eps, whole)
 
     def forward(self, method, xa, xb, ya, yb, eps):
-        out = self._simps2D_adaptive(method, xa, xb, ya, yb, eps)
+        if self.hmin is None:
+            self.hmin = min(abs(xb-xa),(yb-ya))*1e-6
+        if self.count:
+            self.fcount = 0
+            result = self._simps2D_adaptive(method, xa, xb, ya, yb, eps)
+            out = (result, self.fcount)
+        else:
+            out = self._simps2D_adaptive(method, xa, xb, ya, yb, eps)
         return out
+
+
 
 
 
