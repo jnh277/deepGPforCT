@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 
 from math import floor
 
-n = 20
+n = 40
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0, 1, n)
 train_y = 0.5*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
@@ -34,8 +34,10 @@ class DeepGP(torch.nn.Module):
         super(DeepGP, self).__init__()
         self.linear1 = torch.nn.Linear(1, 100)
         self.tanh1 = torch.nn.Tanh()
-        self.linear2 = torch.nn.Linear(100, 2)
-        self.tanh2 = torch.nn.Sigmoid()
+        self.linear2 = torch.nn.Linear(100, 6)
+        self.tanh2 = torch.nn.Tanh()
+        self.linear3 = torch.nn.Linear(6, 1)
+        self.tanh3 = torch.nn.Sigmoid()
         self.gp = gpr.GP_SE(sigma_f=1.0, lengthscale=[1, 1], sigma_n=1)
 
     def forward(self, x_train, y_train, x_test=None):
@@ -48,11 +50,15 @@ class DeepGP(torch.nn.Module):
         h = self.tanh1(h)
         h = self.linear2(h)
         h = self.tanh2(h)
+        h = self.linear3(h)
+        h = self.tanh3(h)
         if x_test is not None:
             h2 = self.linear1(x_test)
             h2 = self.tanh1(h2)
             h2 = self.linear2(h2)
             h2 = self.tanh2(h2)
+            h2 = self.linear3(h2)
+            h2 = self.tanh3(h2)
         else:
             h2 = None
         out = self.gp(h,y_train,h2)

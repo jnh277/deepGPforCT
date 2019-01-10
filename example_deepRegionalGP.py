@@ -25,11 +25,11 @@ lengthscales = torch.ones(1)
 class LargeFeatureExtractor(torch.nn.Sequential):
     def __init__(self):
         super(LargeFeatureExtractor, self).__init__()
-        self.add_module('linear1', torch.nn.Linear(data_dim, 100))
+        self.add_module('linear1', torch.nn.Linear(data_dim, 6))
         self.add_module('Tanh1', torch.nn.Tanh())
-        self.add_module('linear2', torch.nn.Linear(100, 3))
+        self.add_module('linear2', torch.nn.Linear(6, 2))
         self.add_module('Tanh2', torch.nn.Tanh())
-        self.add_module('linear3', torch.nn.Linear(3, 1))
+        self.add_module('linear3', torch.nn.Linear(2, 1))
         self.add_module('Sigmoid3', torch.nn.Sigmoid())     # final layer should output between 0 and 1
 
 
