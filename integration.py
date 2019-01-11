@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import numpy as np
 
 class Simpsons(nn.Module):
     def __init__(self, fcount_out=False, fcount_max=None, hmin=None):
@@ -76,7 +77,9 @@ class Simpsons2D(nn.Module):
 
     def _quad_simpsons2D_mem(self, f, x, y, fp):
         """Evaluates the 2D Simpson's Rule, also returning m and f(m) to reuse"""
+        # with torch.no_grad():
         mx = (x[2]+x[0])/2.0
+
         x[1] = mx
         x[3] = x[0]
         x[4] = mx
@@ -91,7 +94,7 @@ class Simpsons2D(nn.Module):
         y[7] = y[8]
 
         for i in [1, 3, 4, 5, 7]:
-            fp[i] = f(x[i], y[i])
+            fp[i] = f(torch.as_tensor(x[i]), torch.as_tensor(y[i]))
 
         if self.count:
             self.fcount += 5
@@ -103,7 +106,10 @@ class Simpsons2D(nn.Module):
         return x, y, fp, result
 
     def _q(self, v, q):
-        vo = v.clone()
+        if torch.is_tensor(v):
+            vo = v.clone()
+        else:
+            vo = v.copy()
         if q is 0:
             vo[6] = v[3]
             vo[2] = v[1]
@@ -143,6 +149,8 @@ class Simpsons2D(nn.Module):
         xq2, yq2, fq2, q2 = self._quad_simpsons2D_mem(f, self._q(x, 2), self._q(y, 2), self._q(fp, 2))
         xq3, yq3, fq3, q3 = self._quad_simpsons2D_mem(f, self._q(x, 3), self._q(y, 3), self._q(fp, 3))
         sum_q = q0 + q1 + q2 + q3
+        # sum_q.backward()
+        # print('success sum_q')
         delta = sum_q - whole
         if abs(delta) <= 15.0 * eps or self.fcount > self.fcount_max or min(abs(xq0[1]-xq0[0]), abs(yq0[3]-yq0[0])) < self.hmin:
             result = sum_q + delta / 15.0
@@ -156,15 +164,17 @@ class Simpsons2D(nn.Module):
     def _simps2D_adaptive(self, f, xa, xb, ya, yb, eps):
         """Integrate f from a to b using Adaptive Simpson's Rule with max error of eps."""
         fp = torch.Tensor(13)
-        x = torch.Tensor(13)
-        y = torch.Tensor(13)
+        x = np.empty(13, dtype=np.float32)
+        y = np.empty(13, dtype=np.float32)
+        # x = torch.Tensor(13, requires_grad=False)
+        # y = torch.Tensor(13, requires_grad=False)
         x[0] = xa; y[0] = ya
         x[2] = xb; y[2] = ya
         x[6] = xa; y[6] = yb
         x[8] = xb; y[8] = yb
 
         for i in [0, 2, 6, 8]:
-            fp[i] = f(x[i], y[i])
+            fp[i] = f(torch.as_tensor(x[i]), torch.as_tensor(y[i]))
 
         if self.count:
             self.fcount += 4

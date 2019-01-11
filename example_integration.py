@@ -45,21 +45,24 @@ print(a0.grad)
 
 
 ## 2D integration
+a0 = torch.ones(1, requires_grad=True)
 def quadratic_2D(x, y):
-    return 1.0 + 0.8714*x + 0.7429*y + 0.6143*x*y + 0.4857*x.pow(2)+0.3571*y.pow(2) + 0.2286*x*y.pow(2) + 0.1*x.pow(2)*y
+    return a0 + 0.8714*x + 0.7429*y + 0.6143*x*y + 0.4857*x.pow(2)+0.3571*y.pow(2) + 0.2286*x*y.pow(2) + 0.1*x.pow(2)*y
 
 func = lambda x,y: quadratic_2D(x,y)
 
-simpsons2D = int.Simpsons2D(fcount_out=True, fcount_max=3000)
+simpsons2D = int.Simpsons2D(fcount_out=False, fcount_max=3000)
 
 I, fcount = simpsons2D(func, 0, 1, 0, 1, 1e-6)
 # correctintegral is 2.2964
 print(I)
 print(fcount)
+I.backward()
+print(a0.grad.item())
 
-func = lambda x,y: torch.sin(x) + torch.cos(y)
-
-I, fcount = simpsons2D(func, 0, 1, 0, 5, 1e-6)
-print(I)
-print(fcount)
+# func = lambda x,y: torch.sin(x) + torch.cos(y)
+#
+# I, fcount = simpsons2D(func, 0, 1, 0, 5, 1e-6)
+# print(I)
+# print(fcount)
 # correct integral is 1.301168678939781
