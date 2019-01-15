@@ -6,9 +6,9 @@ import gp_regression_hilbert as gprh
 def truefunc(omega,points):
     return torch.cos(torch.squeeze(points, 1) * omega)
 
-omega=2*math.pi
-noise_std=0.1
-n = 50
+omega=8*math.pi
+noise_std=0.2
+n = 300
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0,1, n)
 train_y = truefunc(omega,train_x) + torch.randn(n) * noise_std
@@ -17,11 +17,11 @@ test_x = torch.Tensor(100, 1)
 test_x[:, 0] = torch.linspace(0, 1, 100)
 
 # set appr params
-m = 50 # nr of basis functions
-L = 10 # domain expansion
+m = 40 # nr of basis functions
+L = 2 # domain expansion
 
-model = gprh.GP_1D(sigma_f=1.0, lengthscale=1, sigma_n=noise_std)
-c, v, inv_lambda_diag, phi, sign = model(train_x, train_y, m, L)
+model = gprh.GP_1D(sigma_f=2.0, lengthscale=0.1, sigma_n=2*noise_std)
+#r, v, inv_lambda_diag, phi, bigphi = model(train_x, train_y, m, L)
 
 # print(model)
 
@@ -29,20 +29,20 @@ nLL = gprh.NegMarginalLogLikelihood()  # this is the loss function
 
 optimizer = torch.optim.Adam([
     {'params': model.parameters()},
-], lr=0.005)
+], lr=0.01)
 
-training_iterations = 200
+training_iterations = 400
 
 
 def train():
     for i in range(training_iterations):
         # Zero backprop gradients
         optimizer.zero_grad()
-        # Get output from model
-        c, v, inv_lambda_diag, phi, sign = model(train_x, train_y, m, L)
+
         # Calc loss and backprop derivatives
-        loss = nLL(train_y, c, v, inv_lambda_diag, phi, sign)
+        loss = nLL(model.sigma_f, model.lengthscale, model.sigma_n, train_x, train_y, m, L)
         loss.backward()
+
         print('Iter %d/%d - Loss: %.3f' % (i + 1, training_iterations, loss.item()))
         optimizer.step()
 
@@ -50,7 +50,7 @@ train()
 print(model)
 
 # now make predictions
-test_f, cov_f = model(train_x,train_y, m, L, test_x)
+test_f, cov_f = model(train_x, train_y, m, L, test_x)
 #
 with torch.no_grad():
     fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
