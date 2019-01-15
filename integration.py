@@ -18,8 +18,8 @@ class Simpsons(nn.Module):
 
     def _quad_simpsons_mem(self, f, a, fa, b, fb):
         """Evaluates the Simpson's Rule, also returning m and f(m) to reuse"""
-        m = torch.as_tensor((a+b)/2.0, dtype=torch.float32)
-        fm = f(m)
+        m = (a+b)/2.0
+        fm = f(torch.as_tensor(m))
         if self.count:
             self.fcount += 1
         return m, fm, abs(b-a) / 6.0 * (fa + 4.0 * fm + fb)
@@ -41,22 +41,28 @@ class Simpsons(nn.Module):
 
     def _simps_adaptive(self, f, a, b, eps):
         """Integrate f from a to b using Adaptive Simpson's Rule with max error of eps."""
-        fa, fb = f(a), f(b)
+        fa, fb = f(torch.as_tensor(a)), f(torch.as_tensor(b))
         if self.count:
             self.fcount += 2
         m, fm, whole = self._quad_simpsons_mem(f, a, fa, b, fb)
         return self._quad_asr(f, a, fa, b, fb, eps, whole, m, fm)
 
     def forward(self, method, a, b, eps):
-        # n must be a multiple of 2
-        at = torch.as_tensor(a, dtype=torch.float32)
-        bt = torch.as_tensor(b, dtype=torch.float32)
+        # at = np.empty(1, dtype=np.float32)
+        # bt = np.empty(1, dtype=np.float32)
+        # at[0] = a
+        # bt[0] = b
+        at = a
+        bt = b
         if self.hmin is None:
             self.hmin = abs(bt-at)*1e-6
         if self.count:
             self.fcount = 0
             result = self._simps_adaptive(method, at, bt, eps)
-            out = (result, self.fcount)
+            if self.fcount_out:
+                out = (result, self.fcount)
+            else:
+                out = result
         else:
             out = self._simps_adaptive(method, at, bt, eps)
         return out
@@ -188,7 +194,10 @@ class Simpsons2D(nn.Module):
         if self.count:
             self.fcount = 0
             result = self._simps2D_adaptive(method, xa, xb, ya, yb, eps)
-            out = (result, self.fcount)
+            if self.fcount_out:
+                out = (result, self.fcount)
+            else:
+                out = result
         else:
             out = self._simps2D_adaptive(method, xa, xb, ya, yb, eps)
         return out
