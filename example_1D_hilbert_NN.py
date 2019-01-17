@@ -11,7 +11,7 @@ def truefunc(omega,points):
     return out.view(-1)
 
 omega=8*math.pi
-noise_std=0.1
+noise_std=0.01
 n = 300
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0,1, n)
