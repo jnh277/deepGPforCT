@@ -84,7 +84,7 @@ class NegMarginalLogLikelihood_st(torch.autograd.Function):
 
         # determine L automatically
         tun = 3.5  # tuning parameter
-        L = max(1.5,math.pi*m*torch.sqrt(lengthscale.pow(2))/(2.0*tun))
+        L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(lengthscale.pow(2))/(2.0*tun))
 
         # compute the Phi matrix
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(x_train+L)*0.5/L)  # basis functions
@@ -167,11 +167,11 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
 
         # determine L automatically
         tun = 3.5  # tuning parameter
-        L = max(1.5,math.pi*m*torch.sqrt(lengthscale.pow(2))/(2.0*tun))
+        L = max(1.5*m_train.max(),math.pi*m*torch.sqrt(lengthscale.pow(2))/(2.0*tun))
 
         # compute the Phi matrix
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(m_train+L)*0.5/L)  # basis functions
-        # diagonal of inverse lambda matrix
+        # diagonal of inverse lambda matrix, OBS FOR GENERALISATION: dependent on input dim
         inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
                                   torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
 
@@ -206,6 +206,7 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
         Zil,_ = torch.trtrs(torch.diag(inv_lambda_diag),r.t(),upper=False)  # solves r^T*u=Lambda^-1, u=r*x
         Zil,_ = torch.trtrs(Zil,r) # solves r*x=u
 
+        # OBS FOR GENERALISATION: lengthscale derivatives dependent on input dim
         # terms involving loq|Q|
         dlogQ_dsigma_f = 2.0*m/sigma_f -2.0*(sigma_n.pow(2)/sigma_f)*torch.trace(Zil)
 
@@ -239,7 +240,7 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
             ZidZd_m,_ = torch.trtrs(dZ_dm,r.t(),upper=False)  # solves r^T*u=dZ/dm, u=r*x
             ZidZd_m,_ = torch.trtrs(ZidZd_m,r) # solves r*x=u
             dlogQ_dm = torch.trace(ZidZd_m)
-            dyQiy_dm = -sigma_n.pow(-2)*( y_train.view(1, n).mm(phi).mm(ZidZd_m).mm(v) + 2.0*dphi_dm[k,:].view(1,m).mul(y_train[k]).mm(v) )
+            dyQiy_dm = -sigma_n.pow(-2)*( -y_train.view(1, n).mm(phi).mm(ZidZd_m).mm(v) + 2.0*dphi_dm[k,:].view(1,m).mul(y_train[k]).mm(v) )
             gradm[k] = 0.5*(dlogQ_dm+dyQiy_dm)
 
         return grad1, grad2, grad3, gradm.view(n,1), None, None
