@@ -3,6 +3,92 @@ import torch
 import math
 import integration as integ
 
+class SmallFeatureExtractor(torch.nn.Sequential):
+    def __init__(self, data_dim):
+        super(SmallFeatureExtractor, self).__init__()
+        self.add_module('linear1', torch.nn.Linear(data_dim, 10))
+        self.add_module('Tanh1', torch.nn.Tanh())
+        self.add_module('linear2', torch.nn.Linear(10, 1))
+        self.add_module('Tanh2', torch.nn.Sigmoid())
+
+
+class DeepGP(nn.Module):
+    def __init__(self, sigma_f, lengthscale, sigma_n):
+        super(DeepGP, self).__init__()
+        self.sigma_f = nn.Parameter(torch.Tensor([sigma_f]))
+        self.lengthscale = nn.Parameter(torch.as_tensor(lengthscale, dtype=torch.float))
+        self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
+        self.feature_extractor = SmallFeatureExtractor(1)  # input is the data dimension
+        self.int2D = integ.Simpsons2D(fcount_out=False, fcount_max=100, hmin=0.01)
+        self.int1D = integ.Simpsons(fcount_out=False, fcount_max=400, hmin=0.01)
+
+    def cov_func(self, x, xd):  # scalar inputs only atm
+        # covariance function
+        x = x.unsqueeze(-1)
+        xd = xd.unsqueeze(-1)
+        # p = 1 #x.size(-1), not sure how to properly make this adpative yet
+        h = self.feature_extractor(x)
+        hd = self.feature_extractor(xd)
+
+        d = 0.5 * (h - hd).pow(2) / self.lengthscale.pow(2)
+        cov = self.sigma_f.pow(2) * torch.exp(-d)
+
+        return cov
+
+    # the predict forward function
+    def forward(self, x_train, y_train, x_test=None):
+        # See the autograd section for explanation of what happens here.
+
+        n = x_train.size(0)
+        kyy = torch.empty(n, n)
+
+        for i in range(n):
+            for j in range(i, n):
+                # integrate over the cov func
+                out = self.int2D(self.cov_func, x_train[i, 0], x_train[i, 1], x_train[j, 0], x_train[j, 1], 1e-6)
+                kyy[i, j] = out
+                if i != j:
+                    kyy[j, i] = out
+
+        kyy = kyy + self.sigma_n.pow(2) * torch.eye(n)
+        with torch.no_grad():
+            e,_ = kyy.eig()
+            mine = torch.min(e[:,0])
+        if mine < 1e-6:
+            print('chol correction')
+            kyy = kyy + 1.1 * (1e-6-torch.eye(n)*mine).abs()
+        c = torch.cholesky(kyy, upper=True)
+        # v = torch.potrs(y_train, c, upper=True)
+        v, _ = torch.gesv(y_train.unsqueeze(1), kyy)
+        if x_test is None:
+            out = (c, v)
+
+        if x_test is not None:
+            with torch.no_grad():
+                ntest = x_test.size(0)
+                kfy = torch.empty(ntest, n)
+                for i in range(ntest):
+                    for j in range(n):
+                        # integrate over the cov func
+                        out = self.int1D(lambda x: self.cov_func(x_test[i], x), x_train[j, 0], x_train[j, 1], 1e-6)
+                        kfy[i, j] = out
+
+                # solve
+                f_test = kfy.mm(v)
+                tmp = torch.potrs(kfy.t(), c, upper=True)
+                tmp = torch.sum(kfy * tmp.t(), dim=1)
+                cov_f = self.sigma_f.pow(2) - tmp
+            out = (f_test, cov_f)
+        return out
+
+
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'sigma_f={}, lengthscale={}, sigma_n={}'.format(
+            self.sigma_f.item(), self.lengthscale.item(), self.sigma_n.item()
+        )
+
 
 class LargeFeatureExtractor(torch.nn.Sequential):
     def __init__(self, data_dim):
@@ -22,9 +108,9 @@ class GP_SE_R_INT(nn.Module):
         self.lengthscale = nn.Parameter(torch.as_tensor(lengthscale, dtype=torch.float))
         self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
         self.reg_nn = LargeFeatureExtractor(1)  # input is the data dimension
-        self.int2D = integ.Simpsons2D(fcount_out=False, fcount_max=100)
+        self.int2D = integ.Simpsons2D(fcount_out=False, fcount_max=20)
         self.classify = False
-        self.int1D = integ.Simpsons(fcount_out=False, fcount_max=300, hmin=None)
+        self.int1D = integ.Simpsons(fcount_out=False, fcount_max=400, hmin=None)
 
     def cov_func(self, x, xd):  # scalar inputs only atm
         # covariance function
@@ -66,7 +152,7 @@ class GP_SE_R_INT(nn.Module):
         for i in range(n):
             for j in range(i, n):
                 # integrate over the cov func
-                out, _ = self.int2D(self.cov_func, x_train[i, 0], x_train[i, 1], x_train[j, 0], x_train[j, 1], 1e-6)
+                out = self.int2D(self.cov_func, x_train[i, 0], x_train[i, 1], x_train[j, 0], x_train[j, 1], 1e-6)
                 kyy[i, j] = out
                 if i != j:
                     kyy[j, i] = out
@@ -81,7 +167,7 @@ class GP_SE_R_INT(nn.Module):
             kyy = kyy + 1.1 * (1e-6-torch.eye(n)*mine).abs()
         c = torch.cholesky(kyy, upper=True)
         # v = torch.potrs(y_train, c, upper=True)
-        v, _ = torch.gesv(y_train, kyy)
+        v, _ = torch.gesv(y_train.unsqueeze(1), kyy)
         if x_test is None:
             out = (c, v)
 
@@ -92,7 +178,7 @@ class GP_SE_R_INT(nn.Module):
                 for i in range(ntest):
                     for j in range(n):
                         # integrate over the cov func
-                        out, _ = self.int1D(lambda x: self.cov_func(x_test[i], x), x_train[j, 0], x_train[j, 1], 1e-6)
+                        out = self.int1D(lambda x: self.cov_func(x_test[i], x), x_train[j, 0], x_train[j, 1], 1e-6)
                         kfy[i, j] = out
 
                 # solve
