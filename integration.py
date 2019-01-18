@@ -106,8 +106,8 @@ class Simpsons2D(nn.Module):
         if self.count:
             self.fcount += 5
 
-        hx = abs(x[2] - x[0])
-        hy = abs(y[6] - y[0])
+        hx = (x[2] - x[0])
+        hy = (y[6] - y[0])
         result = hx*hy/12.0*(-fp[0]+4.0*fp[1]-fp[2]+4.0*fp[3]+4.0*fp[5]-fp[6]+4.0*fp[7]-fp[8])
 
         return x, y, fp, result
