@@ -42,7 +42,8 @@ train_y = trufunc_int(omega,train_x,step) + torch.randn(n) * noise_std
 test_x = torch.Tensor(100, 1)
 test_x[:, 0] = torch.linspace(0, 1, 100)
 
-model = gpr.DeepGP(sigma_f=1, lengthscale=1.0, sigma_n=0.1)
+# model = gpr.DeepGP(sigma_f=1, lengthscale=1.0, sigma_n=0.1)
+model = gpr.GP_SE_R_INT(sigma_f=1, lengthscale=1.0, sigma_n=0.1)
 
 print(model)
 
@@ -53,7 +54,7 @@ optimizer = torch.optim.Adam([
     {'params': model.parameters()}
 ], lr=0.01)
 
-training_iterations = 3000
+training_iterations = 500
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=100, verbose=True, factor=0.5,min_lr=1e-6)
 def train():
@@ -90,7 +91,7 @@ train()
 print(model)
 
 # now make predictions
-test_f, cov_f = model(train_x, train_y, test_x)
+test_f, cov_f = model(train_x, train_y, test_x, classify=True)
 
 with torch.no_grad():
     fplot, ax = plt.subplots(1, 1, figsize=(4, 3))

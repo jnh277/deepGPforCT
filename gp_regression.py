@@ -93,9 +93,9 @@ class DeepGP(nn.Module):
 class LargeFeatureExtractor(torch.nn.Sequential):
     def __init__(self, data_dim):
         super(LargeFeatureExtractor, self).__init__()
-        self.add_module('linear1', torch.nn.Linear(data_dim, 30))
+        self.add_module('linear1', torch.nn.Linear(data_dim, 60))
         self.add_module('Tanh1', torch.nn.Tanh())
-        self.add_module('linear2', torch.nn.Linear(30, 10))
+        self.add_module('linear2', torch.nn.Linear(60, 10))
         self.add_module('Tanh2', torch.nn.Tanh())
         self.add_module('linear3', torch.nn.Linear(10, 1))
         self.add_module('Sigmoid3', torch.nn.Sigmoid())     # final layer should output between 0 and 1
@@ -108,9 +108,9 @@ class GP_SE_R_INT(nn.Module):
         self.lengthscale = nn.Parameter(torch.as_tensor(lengthscale, dtype=torch.float))
         self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
         self.reg_nn = LargeFeatureExtractor(1)  # input is the data dimension
-        self.int2D = integ.Simpsons2D(fcount_out=False, fcount_max=20)
+        self.int2D = integ.Simpsons2D(fcount_out=False, fcount_max=100, hmin=0.001)
         self.classify = False
-        self.int1D = integ.Simpsons(fcount_out=False, fcount_max=400, hmin=None)
+        self.int1D = integ.Simpsons(fcount_out=False, fcount_max=400, hmin=0.001)
 
     def cov_func(self, x, xd):  # scalar inputs only atm
         # covariance function
@@ -224,7 +224,8 @@ class GP_SE(nn.Module):
         kyy = self.sigma_f.pow(2)*torch.exp(-d) + self.sigma_n.pow(2) * torch.eye(n)
         c = torch.cholesky(kyy, upper=True)
         # v = torch.potrs(y_train, c, upper=True)
-        v, _ = torch.gesv(y_train, kyy)
+        v, _ = torch.gesv(y_train.unsqueeze(1), kyy)
+        # v = torch.cholesky_solve(y_train.unsqueeze(1), c, upper=True)
         if x_test is None:
             out = (c, v)
 
@@ -237,7 +238,8 @@ class GP_SE(nn.Module):
                 kfy = self.sigma_f.pow(2)*torch.exp(-d)
                 # solve
                 f_test = kfy.mm(v)
-                tmp = torch.potrs(kfy.t(), c, upper=True)
+                # tmp = torch.potrs(kfy.t(), c, upper=True)
+                tmp = torch.cholesky_solve(kfy.t(), c, upper=True)
                 tmp = torch.sum(kfy * tmp.t(), dim=1)
                 cov_f = self.sigma_f.pow(2) - tmp
             out = (f_test, cov_f)

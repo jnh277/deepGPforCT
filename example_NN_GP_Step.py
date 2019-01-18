@@ -7,13 +7,13 @@ from matplotlib import pyplot as plt
 
 from math import floor
 
-n = 40
+n = 60
 train_x = torch.Tensor(n, 1)
 train_x[:, 0] = torch.linspace(0, 1, n)
-train_y = 0.5*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
+train_y = 0.0*torch.sin(torch.squeeze(train_x, 1) * (3 * math.pi))
 train_y[torch.squeeze(train_x, 1) > 0.5] = train_y[torch.squeeze(train_x, 1) > 0.5] + 1
 train_y[torch.squeeze(train_x, 1) <= 0.5] = train_y[torch.squeeze(train_x, 1) <= 0.5] - 1
-train_y = train_y + torch.randn(train_y.size()) * 0.2
+train_y = train_y + torch.randn(train_y.size()) * 0.05
 
 test_x = torch.Tensor(100, 1)
 test_x[:, 0] = torch.linspace(0, 1, 100)
