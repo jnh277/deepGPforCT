@@ -36,7 +36,7 @@ simpsons = int.Simpsons(fcount_out=True, fcount_max=None, hmin=None)
 
 # Itrue = 4.1875
 # true  grad is 2.5
-I, fcount= simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
+I, fcount= simpsons(func, b, a, 1e-6)       # n must be a multiple of 2
 
 print(I.item())
 print(fcount)
@@ -44,7 +44,7 @@ I.backward()
 print(a0.grad)
 
 a0.grad.zero_()
-simpsons = int.Simpsons(fcount_out=False, fcount_max=20, hmin=None)     # limiting the  number of subdivisions
+simpsons = int.Simpsons(fcount_out=False, fcount_max=None, hmin=None)     # limiting the  number of subdivisions
 I = simpsons(func, a, b, 1e-6)       # n must be a multiple of 2
 print(I.item())
 I.backward()

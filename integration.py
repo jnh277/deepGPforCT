@@ -7,8 +7,9 @@ class Simpsons(nn.Module):
         super(Simpsons, self).__init__()
         self.fcount_out = fcount_out
         self.count = fcount_out or fcount_max is not None
-        if self.count:
-            self.fcount = 0
+        self.fcount = 0
+        # if self.count:
+        #     self.fcount = 0
         if fcount_max is not None:
             self.fcount_max = fcount_max
         else:
@@ -22,7 +23,7 @@ class Simpsons(nn.Module):
         fm = f(torch.as_tensor(m))
         if self.count:
             self.fcount += 1
-        return m, fm, abs(b-a) / 6.0 * (fa + 4.0 * fm + fb)
+        return m, fm, (b-a) / 6.0 * (fa + 4.0 * fm + fb)
 
     def _quad_asr(self, f, a, fa, b, fb, eps, whole, m, fm):
         """
