@@ -6,24 +6,34 @@ import numpy as np
 
 
 def truefunc(omega,points):
-    return torch.sin(torch.squeeze(points,1) * omega)
+    # return torch.sin(torch.squeeze(points,1) * omega)
+    out=points.clone()
+    out[points<0.5]=-1
+    out[points>0.5]=1
+    return out.view(-1)
 
-def trufunc_int(omega,points_lims):
-    return -torch.cos(omega*points_lims[:,1])/omega+torch.cos(omega*points_lims[:,0])/omega
+def truefunc_int(omega,points_lims):
+    # return -torch.cos(omega*points_lims[:,1])/omega+torch.cos(omega*points_lims[:,0])/omega
+    out=points_lims.clone()-0.5
+    out1=out[:,0].clone()
+    out1[out1<0]=-out1[out[:,0]<0]
+    out2=out[:,1].clone()
+    out2[out[:,1]<0]=-out2[out[:,1]<0]
+    return out2-out1
 
 noise_std=0.01
-n = 10
-omega=2
+n = 150
+omega=2*math.pi
 
 # inputs (integral limits)
-train_x = torch.rand(n,2)*2*math.pi
+train_x = torch.rand(n,2)
 
 # output (integral measurements)
-train_y = trufunc_int(omega,train_x) + torch.randn(n) * noise_std
+train_y = truefunc_int(omega,train_x) + torch.randn(n) * noise_std
 
 # test points
 test_x = torch.Tensor(100, 1)
-test_x[:, 0] = torch.linspace(0, 2*math.pi, 100)
+test_x[:, 0] = torch.linspace(0, 1, 100)
 
 model = gpr.GP_1D_int(sigma_f=1.0, lengthscale=1, sigma_n=1)
 # c, v = model(train_x, train_y)
@@ -34,9 +44,9 @@ nLL = gpr.NegMarginalLogLikelihood()  # this is the loss function
 
 optimizer = torch.optim.Adam([
     {'params': model.parameters()},
-], lr=0.005)
+], lr=0.01)
 
-training_iterations = 200
+training_iterations = 500
 
 
 def train():

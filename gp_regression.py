@@ -238,8 +238,8 @@ class GP_SE(nn.Module):
                 kfy = self.sigma_f.pow(2)*torch.exp(-d)
                 # solve
                 f_test = kfy.mm(v)
-                # tmp = torch.potrs(kfy.t(), c, upper=True)
-                tmp = torch.cholesky_solve(kfy.t(), c, upper=True)
+                tmp = torch.potrs(kfy.t(), c, upper=True)
+                # tmp = torch.cholesky_solve(kfy.t(), c, upper=True)
                 tmp = torch.sum(kfy * tmp.t(), dim=1)
                 cov_f = self.sigma_f.pow(2) - tmp
             out = (f_test, cov_f)
@@ -300,6 +300,66 @@ class GP_1D(nn.Module):
         return 'sigma_f={}, lengthscale={}, sigma_n={}'.format(
             self.sigma_f.item(), self.lengthscale.item(), self.sigma_n.item()
         )
+
+
+class GP_1D_NN(nn.Module):
+    def __init__(self, sigmaentr, sigma_n):
+        super(GP_1D_NN, self).__init__()
+        # nn.Parameter is a special kind of Tensor, that will get
+        # automatically registered as Module's parameter once it's assigned
+        # as an attribute. Parameters and buffers need to be registered, or
+        # they won't appear in .parameters() (doesn't apply to buffers), and
+        # won't be converted when e.g. .cuda() is called. You can use
+        # .register_buffer() to register buffers.
+        # nn.Parameters require gradients by default.
+        self.sigmaentr = nn.Parameter(torch.as_tensor(sigmaentr, dtype=torch.float))
+        self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
+
+    # the predict forward function
+    def forward(self, x_train, y_train, x_test=None):
+        # See the autograd section for explanation of what happens here.
+        n = x_train.size(0)
+        #dm = torch.Tensor([[1,0,0],[0,1,0],[0,1,0],[0,0,1]])
+        SIGMA = torch.diag(self.sigmaentr.pow(2).view(-1))#dm.mm(self.sigmaentr.pow(2).view(3,1)).view(2,2)
+
+        trOnes = torch.ones(1,n)
+        xext = torch.cat((trOnes,x_train.t()), 0)
+        xSx = xext.t().mm(SIGMA).mm(xext)
+        xSxd = torch.diag(xSx).view(n,1)
+
+        kyy =  (2.0/math.pi) * torch.asin( 2.0*xSx / torch.sqrt( (1+2.0*xSxd).mm(1+2.0*xSxd.t() )) )
+
+        kyy = 0.5*(kyy+kyy.t()) + self.sigma_n.pow(2) * torch.eye(n)
+        add = torch.eig(kyy)[0][:,0].min().detach()
+        while add<0:
+            kyy = kyy - 2*add*torch.eye(n)
+            add = torch.eig(kyy)[0][:,0].min().detach()
+        c = torch.cholesky(kyy, upper=True)
+        # v = torch.potrs(y_train, c, upper=True)
+        v, _ = torch.gesv(y_train, kyy)
+
+        if x_test is None:
+            out = (c, v)
+
+        if x_test is not None:
+            nt = x_test.size(0)
+            teOnes = torch.ones(1,nt)
+            xexte = torch.cat((teOnes,x_test.t()), 0)
+            xSx_m = xext.t().mm(SIGMA).mm(xexte)
+
+            xSx_te_d = torch.sum( xexte.t() * (SIGMA.mm(xexte)).t() ,dim=1).view(nt,1)
+
+            kyf = (2.0/math.pi) * torch.asin( 2.0*xSx_m / torch.sqrt( (1+2.0*xSxd).mm(1+2.0*xSx_te_d.t() )) )
+
+            # solve
+            f_test = kyf.t().mm(v)
+
+            # tmp = torch.potrs(kfy.t(), c, upper=True)
+            # tmp = torch.sum(kfy * tmp.t(), dim=1)
+            # #cov_f = something - tmp
+
+            out = f_test#, cov_f)
+        return out
 
 
 class NegMarginalLogLikelihood(nn.Module):
