@@ -13,7 +13,7 @@ def truefunc(omega,points):
     out=points.clone()
     out[points<0.5]=-1
     out[points>0.5]=1
-    # out[points>0.7]=-1
+    # out[points>0.7]=-0.3
     return out.view(-1)
 
 omega=8*math.pi
@@ -43,7 +43,7 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
-        self.gp = gprh.GP_1D(sigma_f=1.0, lengthscale=0.05, sigma_n=2*noise_std)
+        self.gp = gprh.GP_1D(sigma_f=1.0, lengthscale=1, sigma_n=2*noise_std)
 
     def forward(self, x_train, y_train=None, m=None, x_test=None):
         """

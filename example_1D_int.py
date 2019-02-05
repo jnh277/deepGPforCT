@@ -21,8 +21,8 @@ def truefunc_int(omega,points_lims):
     out2[out[:,1]<0]=-out2[out[:,1]<0]
     return out2-out1
 
-noise_std=0.01
-n = 150
+noise_std=0.001
+n = 50
 omega=2*math.pi
 
 # inputs (integral limits)
@@ -44,9 +44,9 @@ nLL = gpr.NegMarginalLogLikelihood()  # this is the loss function
 
 optimizer = torch.optim.Adam([
     {'params': model.parameters()},
-], lr=0.01)
+], lr=0.001)
 
-training_iterations = 500
+training_iterations = 3000
 
 
 def train():
@@ -74,7 +74,7 @@ with torch.no_grad():
     ax.plot(test_x.numpy(), truefunc(omega,test_x).numpy(), 'k')
     # plot integral regions
     for i in range(n):
-        ax.plot(train_x[i,:].numpy(),np.zeros(2)+0.02*i)
+        ax.plot(train_x[i,:].numpy(),np.zeros(2)-0.01*i)
     # Plot training data as black stars
     #ax.plot(train_x.numpy(), train_y.numpy(), 'k*')
     upper = torch.squeeze(test_f, 1) + cov_f.pow(0.5)

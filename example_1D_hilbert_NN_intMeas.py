@@ -62,7 +62,7 @@ if points:
     # END OF POINT INPUTS
 
 # set appr params
-m = 60 # nr of basis functions
+m = 10 # nr of basis functions
 
 class DeepGP(torch.nn.Module):
     def __init__(self):

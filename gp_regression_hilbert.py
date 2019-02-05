@@ -122,7 +122,8 @@ class GP_1D_new(nn.Module):
             inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
                                       torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
 
-        print(inv_lambda_diag[m-1])
+        # print(inv_lambda_diag[m-1])
+
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )
         phi_lam = torch.cat( (phi , sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
 
@@ -298,7 +299,7 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
         # determine L automatically
         tun = 6  # tuning parameter
         L = max(1.5*m_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
-        print(L)
+        # print(L)
 
         # compute the Phi matrix
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(m_train+L)*0.5/L)  # basis functions
