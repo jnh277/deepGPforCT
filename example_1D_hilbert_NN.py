@@ -4,16 +4,16 @@ from matplotlib import pyplot as plt
 import gp_regression_hilbert as gprh
 
 # added these lines to include PyTorch-LBFGS
-import sys
-sys.path.append('./functions/')
-from LBFGS import FullBatchLBFGS
+# import sys
+# sys.path.append('./functions/')
+# from LBFGS import FullBatchLBFGS
 
 def truefunc(omega,points):
     # return torch.cos(torch.squeeze(points, 1) * omega)
     out=points.clone()
     out[points<0.5]=-1
     out[points>0.5]=1
-    # out[points>0.7]=-0.3
+    out[points>0.7]=-0.3
     return out.view(-1)
 
 omega=8*math.pi
@@ -26,7 +26,7 @@ nt = 1000
 test_x = torch.linspace(0, 1, nt).view(nt, 1)
 
 # set appr params
-m = 60 # nr of basis functions
+m = 20 # nr of basis functions
 
 class DeepGP(torch.nn.Module):
     def __init__(self):
@@ -43,6 +43,7 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
+        self.scale = 5.0
         self.gp = gprh.GP_1D(sigma_f=1.0, lengthscale=1, sigma_n=2*noise_std)
 
     def forward(self, x_train, y_train=None, m=None, x_test=None):
@@ -60,6 +61,7 @@ class DeepGP(torch.nn.Module):
         h = self.tanh3(h)
         h = self.linear4(h)
         h = self.tanh4(h)
+        h = self.scale * h
         if x_test is not None:
             h2 = x_test.clone()
             h2 = self.linear1(h2)
@@ -70,6 +72,7 @@ class DeepGP(torch.nn.Module):
             h2 = self.tanh3(h2)
             h2 = self.linear4(h2)
             h2 = self.tanh4(h2)
+            h2 = self.scale * h2
         else:
             h2 = None
         if y_train is not None:
@@ -89,7 +92,7 @@ optimizer = torch.optim.Adam([
     {'params': model.parameters()},
 ], lr=0.01)
 
-training_iterations = 700
+training_iterations = 1000
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.99,min_lr=1e-6)
 
