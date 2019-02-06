@@ -54,7 +54,7 @@ optimizer = torch.optim.Adam([
     {'params': model.parameters()}
 ], lr=0.01)
 
-training_iterations = 500
+training_iterations = 100
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=100, verbose=True, factor=0.5,min_lr=1e-6)
 def train():
@@ -109,8 +109,8 @@ with torch.no_grad():
     ax.fill_between(torch.squeeze(test_x,1).numpy(), lower.numpy(), upper.numpy(), alpha=0.5)
     ax.set_ylim([-2, 2])
     ax.legend(['True', 'Mean', 'Confidence'])
-    h = model.feature_extractor(test_x)
-    ax.plot(test_x.numpy(), h.detach().numpy(), 'g')
+    # h = model.feature_extractor(test_x)
+    # ax.plot(test_x.numpy(), h.detach().numpy(), 'g')
     plt.show()
 
 
