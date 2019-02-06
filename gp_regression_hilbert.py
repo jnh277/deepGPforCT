@@ -2,8 +2,10 @@ import torch.nn as nn
 import torch
 import math
 
+# TODO: extend to 2D
+
 class GP_1D(nn.Module):
-    def __init__(self, sigma_f, lengthscale, sigma_n):
+    def __init__(self, sigma_f, lengthscale, sigma_n, covtype="se", nu=2.5):
         super(GP_1D, self).__init__()
         # nn.Parameter is a special kind of Tensor, that will get
         # automatically registered as Module's parameter once it's assigned
@@ -12,32 +14,46 @@ class GP_1D(nn.Module):
         # won't be converted when e.g. .cuda() is called. You can use
         # .register_buffer() to register buffers.
         # nn.Parameters require gradients by default.
-        self.sigma_f = nn.Parameter(torch.Tensor([sigma_f]))
-        self.lengthscale = nn.Parameter(torch.Tensor([lengthscale]))
-        self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
+        self.log_sigma_f = nn.Parameter(torch.Tensor([sigma_f]).abs().log())
+        self.log_lengthscale = nn.Parameter(torch.Tensor([lengthscale]).abs().log())
+        self.log_sigma_n = nn.Parameter(torch.Tensor([sigma_n]).abs().log())
+        self.covtype = covtype
+        self.nu = nu
 
     # the predict forward function
     def forward(self, x_train, y_train, m, x_test=None):
 
+        # extract hyperparameters
+        sigma_f = torch.exp(self.log_sigma_f)
+        lengthscale = torch.exp(self.log_lengthscale)
+        sigma_n = torch.exp(self.log_sigma_n)
+
         # create an index vector, index=[1 2 3...]
-        index = torch.empty(1, m)
-        for i in range(m):
-            index[0, i]=i+1
+        index = torch.linspace(1, m, m).view(1,m)
 
         # See the autograd section for explanation of what happens here.
         n = x_train.size(0)
 
         # determine L automatically
-        tun = 3.5  # tuning parameter
-        L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(self.lengthscale.pow(2))/(2.0*tun))
+        tun = 6 # tuning parameter
+        L = max(1.2*x_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
 
+        # compute phi
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(x_train+L)*0.5/L) # basis functions
-        # diagonal of inverse lambda matrix
-        inv_lambda_diag = ( self.sigma_f.pow(-2) * torch.pow(2.0*math.pi*self.lengthscale.pow(2), -0.5)*
-                                  torch.exp( 0.5*self.lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
 
-        Z = phi.t().mm(phi) + self.sigma_n.pow(2) * torch.diag( inv_lambda_diag )
-        phi_lam = torch.cat( (phi , self.sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
+        # diagonal of inverse lambda matrix
+        if self.covtype is "matern":
+            dim = 1
+            inv_lambda_diag = 1/( sigma_f.pow(2)*math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(self.nu+dim/2.0)*
+                    math.pow(2.0*self.nu,self.nu)*( 2.0*self.nu*lengthscale.pow(-2) + pow(math.pi*index.t() / (2.0*L), 2) ).pow(-self.nu-dim/2.0)
+                    / (math.gamma(self.nu)*lengthscale.pow(2.0*self.nu)) ).view(m)
+
+        if self.covtype is "se":
+            inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
+                                      torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+
+        Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )
+        phi_lam = torch.cat( (phi , sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
 
         _,r = torch.qr(phi_lam)
         v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)
@@ -52,7 +68,7 @@ class GP_1D(nn.Module):
                 f_test = phi_star.t().mm(v)
                 tmp,_ = torch.trtrs(phi_star,r.t(),upper=False)  # solves r^T*u=phi_star, u=r*x
                 tmp,_ = torch.trtrs(tmp,r) # solves r*x=u
-                cov_f = self.sigma_n.pow(2)*torch.sum(phi_star.t() * tmp.t(), dim=1)
+                cov_f = sigma_n.pow(2)*torch.sum(phi_star.t() * tmp.t(), dim=1)
             out = (f_test, cov_f)
         return out
 
@@ -61,13 +77,13 @@ class GP_1D(nn.Module):
         # (Optional)Set the extra information about this module. You can test
         # it by printing an object of this class.
         return 'sigma_f={}, lengthscale={}, sigma_n={}'.format(
-            self.sigma_f.item(), self.lengthscale.item(), self.sigma_n.item()
+            torch.exp(self.log_sigma_f).item(), torch.exp(self.log_lengthscale).item(), torch.exp(self.log_sigma_n).item()
         )
 
 
 # create new model that takes phi as input
 class GP_1D_new(nn.Module):
-    def __init__(self, sigma_f, lengthscale, sigma_n):
+    def __init__(self, sigma_f, lengthscale, sigma_n, covtype="se", nu=2.5):
         super(GP_1D_new, self).__init__()
         # nn.Parameter is a special kind of Tensor, that will get
         # automatically registered as Module's parameter once it's assigned
@@ -76,70 +92,106 @@ class GP_1D_new(nn.Module):
         # won't be converted when e.g. .cuda() is called. You can use
         # .register_buffer() to register buffers.
         # nn.Parameters require gradients by default.
-        self.sigma_f = nn.Parameter(torch.Tensor([sigma_f]))
-        self.lengthscale = nn.Parameter(torch.Tensor([lengthscale]))
-        self.sigma_n = nn.Parameter(torch.Tensor([sigma_n]))
+        self.log_sigma_f = nn.Parameter(torch.Tensor([sigma_f]).abs().log())
+        self.log_lengthscale = nn.Parameter(torch.Tensor([lengthscale]).abs().log())
+        self.log_sigma_n = nn.Parameter(torch.Tensor([sigma_n]).abs().log())
+        self.covtype = covtype
+        self.nu = nu
 
     # the predict forward function
-    def forward(self, y_train, phi, m, L, m_test=None):
-        with torch.no_grad():
-            # create an index vector, index=[1 2 3...]
-            index = torch.empty(1, m)
-            for i in range(m):
-                index[0, i]=i+1
+    def forward(self, y_train, phi, m, L, m_test):
+        # extract hyperparameters
+        sigma_f = torch.exp(self.log_sigma_f)
+        lengthscale = torch.exp(self.log_lengthscale)
+        sigma_n = torch.exp(self.log_sigma_n)
 
-            # See the autograd section for explanation of what happens here.
-            n = y_train.size(0)
+        # create an index vector, index=[1 2 3...]
+        index = torch.linspace(1, m, m).view(1,m)
 
-            # diagonal of inverse lambda matrix
-            inv_lambda_diag = ( self.sigma_f.pow(-2) * torch.pow(2.0*math.pi*self.lengthscale.pow(2), -0.5)*
-                                      torch.exp( 0.5*self.lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+        # See the autograd section for explanation of what happens here.
+        n = y_train.size(0)
 
-            Z = phi.t().mm(phi) + self.sigma_n.pow(2) * torch.diag( inv_lambda_diag )
-            phi_lam = torch.cat( (phi , self.sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
+        # diagonal of inverse lambda matrix
+        if self.covtype is "matern":
+            dim = 1
+            inv_lambda_diag = 1/( sigma_f.pow(2)*math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(self.nu+dim/2.0)*
+                    math.pow(2.0*self.nu,self.nu)*( 2.0*self.nu*lengthscale.pow(-2) + pow(math.pi*index.t() / (2.0*L), 2) ).pow(-self.nu-dim/2.0)
+                    / (math.gamma(self.nu)*lengthscale.pow(2.0*self.nu)) ).view(m)
 
-            _,r = torch.qr(phi_lam)
-            v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)
+        if self.covtype is "se":
+            inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
+                                      torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
 
-            # compute phi_star
-            phi_star = 1/math.sqrt(L) * torch.sin(math.pi*index.t()*(m_test.t()+L)*0.5/L)
+        # print(inv_lambda_diag[m-1])
 
-            # predict
-            f_test = phi_star.t().mm(v)
-            tmp,_ = torch.trtrs(phi_star,r.t(),upper=False)  # solves r^T*u=phi_star, u=r*x
-            tmp,_ = torch.trtrs(tmp,r) # solves r*x=u
-            cov_f = self.sigma_n.pow(2)*torch.sum(phi_star.t() * tmp.t(), dim=1)
+        Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )
+        phi_lam = torch.cat( (phi , sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
+
+        _,r = torch.qr(phi_lam)
+        v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)
+
+        # compute phi_star
+        phi_star = 1/math.sqrt(L) * torch.sin(math.pi*index.t()*(m_test.t()+L)*0.5/L)
+
+        # predict
+        f_test = phi_star.t().mm(v)
+        tmp,_ = torch.trtrs(phi_star,r.t(),upper=False)  # solves r^T*u=phi_star, u=r*x
+        tmp,_ = torch.trtrs(tmp,r) # solves r*x=u
+        cov_f = sigma_n.pow(2)*torch.sum(phi_star.t() * tmp.t(), dim=1)
         out = (f_test, cov_f)
         return out
 
+    def extra_repr(self):
+        # (Optional)Set the extra information about this module. You can test
+        # it by printing an object of this class.
+        return 'sigma_f={}, lengthscale={}, sigma_n={}'.format(
+            torch.exp(self.log_sigma_f).item(), torch.exp(self.log_lengthscale).item(), torch.exp(self.log_sigma_n).item()
+        )
+
 # neg log marg like
 class NegMarginalLogLikelihood(nn.Module):
-    def __init__(self):
+    def __init__(self,covtype="se",nu=2.5):
         super(NegMarginalLogLikelihood, self).__init__()
+        self.covtype = covtype
+        self.nu = nu
 
-    def forward(self, sigma_f, lengthscale, sigma_n, x_train, y_train, m):
+    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, x_train, y_train, m):
         nll_st = NegMarginalLogLikelihood_st.apply
-        return nll_st(sigma_f, lengthscale, sigma_n, x_train, y_train, m)
+        return nll_st(log_sigma_f, log_lengthscale, log_sigma_n, x_train, y_train, m, self.covtype, self.nu)
 
 class NegMarginalLogLikelihood_st(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, sigma_f, lengthscale, sigma_n, x_train, y_train, m):
-        index = torch.empty(1, m)
-        for i in range(m):
-            index[0, i]=i+1
+    def forward(ctx, log_sigma_f, log_lengthscale, log_sigma_n, x_train, y_train, m, covtype, nu):
+        # extract hyperparameters
+        sigma_f = torch.exp(log_sigma_f)
+        lengthscale = torch.exp(log_lengthscale)
+        sigma_n = torch.exp(log_sigma_n)
+
+        # create an index vector, index=[1 2 3...]
+        index = torch.linspace(1, m, m).view(1,m)
 
         # See the autograd section for explanation of what happens here.
         n = x_train.size(0)
 
         # determine L automatically
-        tun = 3.5  # tuning parameter
-        L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(lengthscale.pow(2))/(2.0*tun))
+        tun = 6  # tuning parameter
+        L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
 
         # compute the Phi matrix
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(x_train+L)*0.5/L)  # basis functions
+
         # diagonal of inverse lambda matrix
-        inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
-                                  torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+        if covtype is "se":
+            covtypeNum = torch.ones(1,dtype=torch.int32)
+            inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
+                                      torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+
+        if covtype is "matern":
+            covtypeNum = 2*torch.ones(1,dtype=torch.int32)
+            dim = 1
+            inv_lambda_diag = 1/( sigma_f.pow(2)*math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(nu+dim/2.0)*
+                    math.pow(2.0*nu,nu)*( 2.0*nu*lengthscale.pow(-2) + pow(math.pi*index.t() / (2.0*L), 2) ).pow(-nu-dim/2.0)
+                    / (math.gamma(nu)*lengthscale.pow(2.0*nu)) ).view(m)
 
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
         phi_lam = torch.cat( (phi , sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
@@ -156,14 +208,14 @@ class NegMarginalLogLikelihood_st(torch.autograd.Function):
         nLL = 0.5*logQ + 0.5*yQiy  # neg log marg likelihood
 
         # save tensors for the backward pass
-        ctx.save_for_backward(sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi, Z, index, torch.as_tensor(L))
+        ctx.save_for_backward(sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi, Z, index, torch.as_tensor(L), covtypeNum, torch.as_tensor(nu))
 
         return nLL
 
     @staticmethod
     def backward(ctx, grad_output):
         # load tensors from the forward pass
-        sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi, Z, index, L, = ctx.saved_tensors
+        sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi, Z, index, L, covtypeNum, nu, = ctx.saved_tensors
 
         m = inv_lambda_diag.size(0)  # nr of basis functions
         n = y_train.size(0)  # nr of data points
@@ -172,59 +224,98 @@ class NegMarginalLogLikelihood_st(torch.autograd.Function):
         Zil,_ = torch.trtrs(torch.diag(inv_lambda_diag),r.t(),upper=False)  # solves r^T*u=Lambda^-1, u=r*x
         Zil,_ = torch.trtrs(Zil,r) # solves r*x=u
 
-        # terms involving loq|Q|
-        dlogQ_dsigma_f = 2.0*m/sigma_f -2.0*(sigma_n.pow(2)/sigma_f)*torch.trace(Zil)
-
         omega_squared = pow(math.pi*index.t() / (2.0*L), 2)
-        dlogQ_dlengthscale = ( torch.sum( 1-lengthscale.pow(2)*omega_squared )/lengthscale
-                               -sigma_n.pow(2) * torch.trace( Zil.mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )/lengthscale)) ) )
 
-        dlogQ_dsigma_n = 2.0*(n-m)/sigma_n + 2.0*sigma_n*torch.trace(Zil)
+        if covtypeNum.item() is 1: # se
+            # terms involving loq|Q|
+            dlogQ_dlog_sigma_f = 2.0*m -2.0*(sigma_n.pow(2))*torch.trace(Zil)
 
-        # terms involving invQ
-        dyQiy_dsigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0/sigma_f
+            dlogQ_dlog_lengthscale = ( torch.sum( 1-lengthscale.pow(2)*omega_squared )
+                                   -sigma_n.pow(2) * torch.sum( Zil*torch.diag( 1-lengthscale.pow(2)*omega_squared.view(m) )  ,dim=1) )
 
-        dyQiy_dlengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )/lengthscale).mm(v))
+            dlogQ_dlog_sigma_n = 2.0*(n-m)+ 2.0*sigma_n.pow(2)*torch.trace(Zil)
 
-        dyQiy_dsigma_n = ( (2.0/sigma_n)*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
-                              +(2.0/sigma_n.pow(3))*y_train.view(1, n).mm(phi).mm(v)  -(2.0/sigma_n.pow(3))*y_train.dot(y_train) )
+            # terms involving invQ
+            dyQiy_dlog_sigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0
 
-        grad1 = 0.5*(dlogQ_dsigma_f+dyQiy_dsigma_f)  # derivative wrt sigma_f
-        grad2 = 0.5*(dlogQ_dlengthscale+dyQiy_dlengthscale)  # derivative wrt lengthscale
-        grad3 = 0.5*(dlogQ_dsigma_n+dyQiy_dsigma_n)  # derivative wrt sigma_n
-        return grad1, grad2, grad3, None, None, None
+            dyQiy_dlog_lengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )).mm(v))
+
+            dyQiy_dlog_sigma_n = ( 2.0*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
+                                  +(2.0*sigma_n.pow(-2))*y_train.view(1, n).mm(phi).mm(v)  -(2.0*sigma_n.pow(-2))*y_train.dot(y_train) )
+
+        if covtypeNum.item() is 2: # matern
+            nu = nu.item()
+            dim=1
+            SD_fac = (math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(nu+dim/2.0)*math.pow(2.0*nu,nu))/math.gamma(nu)
+            SD_par = 2*nu*lengthscale.pow(-2)+omega_squared
+
+            # terms involving loq|Q|
+            dlogQ_dlog_sigma_f = 2.0*m -2.0*(sigma_n.pow(2))*torch.trace(Zil)
+
+            dlogQ_dlog_lengthscale = ( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).sum()
+                                       -sigma_n.pow(2) * torch.sum( Zil*torch.diag( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).view(m)  )  ,dim=1)  )
+
+            dlogQ_dlog_sigma_n = 2.0*(n-m)+ 2.0*sigma_n.pow(2)*torch.trace(Zil)
+
+            # terms involving invQ
+            dyQiy_dlog_sigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0
+
+            dyQiy_dlog_lengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).view(m)  ).mm(v))
+
+            dyQiy_dlog_sigma_n = ( 2.0*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
+                                  +(2.0*sigma_n.pow(-2))*y_train.view(1, n).mm(phi).mm(v)  -(2.0*sigma_n.pow(-2))*y_train.dot(y_train) )
+
+        grad1 = 0.5*(dlogQ_dlog_sigma_f+dyQiy_dlog_sigma_f)  # derivative wrt log_sigma_f
+        grad2 = 0.5*(dlogQ_dlog_lengthscale+dyQiy_dlog_lengthscale)  # derivative wrt log_lengthscale
+        grad3 = 0.5*(dlogQ_dlog_sigma_n+dyQiy_dlog_sigma_n)  # derivative wrt log_sigma_n
+        return grad1, grad2, grad3, None, None, None, None, None
 
 
 # Deep version
 class NegMarginalLogLikelihood_deep(nn.Module):
-    def __init__(self):
+    def __init__(self,covtype="se",nu=2.5):
         super(NegMarginalLogLikelihood_deep, self).__init__()
+        self.covtype = covtype
+        self.nu = nu
 
-    def forward(self, sigma_f, lengthscale, sigma_n, m_train, y_train, m):
+    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, m_train, y_train, m):
         nll_st = NegMarginalLogLikelihood_deep_st.apply
-        return nll_st(sigma_f, lengthscale, sigma_n, m_train, y_train, m)
+        return nll_st(log_sigma_f, log_lengthscale, log_sigma_n, m_train, y_train, m, self.covtype, self.nu)
 
 class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, sigma_f, lengthscale, sigma_n, m_train, y_train, m):
+    def forward(ctx, log_sigma_f, log_lengthscale, log_sigma_n, m_train, y_train, m, covtype, nu):
+        # extract hyperparameters
+        sigma_f = torch.exp(log_sigma_f)
+        lengthscale = torch.exp(log_lengthscale)
+        sigma_n = torch.exp(log_sigma_n)
+
         # create an index vector, index=[1 2 3...]
-        index = torch.empty(1, m)
-        for i in range(m):
-            index[0, i]=i+1
+        index = torch.linspace(1, m, m).view(1,m)
 
         # extract the data set size
         n = m_train.size(0)
 
         # determine L automatically
-        tun = 3.5  # tuning parameter
-        L = max(1.5*m_train.max(),math.pi*m*torch.sqrt(lengthscale.pow(2))/(2.0*tun))
+        tun = 6  # tuning parameter
+        L = max(1.5*m_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
+        # print(L)
 
         # compute the Phi matrix
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(m_train+L)*0.5/L)  # basis functions
 
         # diagonal of inverse lambda matrix, OBS FOR GENERALISATION: dependent on input dim
-        inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
-                                  torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+        if covtype is "se":
+            covtypeNum = torch.ones(1,dtype=torch.int32)
+            inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
+                                      torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+
+        if covtype is "matern":
+            covtypeNum = 2*torch.ones(1,dtype=torch.int32)
+            dim = 1
+            inv_lambda_diag = 1/( sigma_f.pow(2)*math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(nu+dim/2.0)*
+                    math.pow(2.0*nu,nu)*( 2.0*nu*lengthscale.pow(-2) + pow(math.pi*index.t() / (2.0*L), 2) ).pow(-nu-dim/2.0)
+                    / (math.gamma(nu)*lengthscale.pow(2.0*nu)) ).view(m)
 
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
         phi_lam = torch.cat( (phi , sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
@@ -241,14 +332,14 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
         nLL = 0.5*logQ + 0.5*yQiy  # neg log marg likelihood
 
         # save tensors for the backward pass
-        ctx.save_for_backward(sigma_f, lengthscale, sigma_n, r, m_train, y_train, v, inv_lambda_diag, phi, Z, index, torch.as_tensor(L))
+        ctx.save_for_backward(sigma_f, lengthscale, sigma_n, r, m_train, y_train, v, inv_lambda_diag, phi, Z, index, torch.as_tensor(L), covtypeNum, torch.as_tensor(nu))
 
         return nLL
 
     @staticmethod
     def backward(ctx, grad_output):
         # load tensors from the forward pass
-        sigma_f, lengthscale, sigma_n, r, m_train, y_train, v, inv_lambda_diag, phi, Z, index, L, = ctx.saved_tensors
+        sigma_f, lengthscale, sigma_n, r, m_train, y_train, v, inv_lambda_diag, phi, Z, index, L, covtypeNum, nu, = ctx.saved_tensors
 
         m = inv_lambda_diag.size(0)  # nr of basis functions
         n = y_train.size(0)  # nr of data points
@@ -257,28 +348,50 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
         Zil,_ = torch.trtrs(torch.diag(inv_lambda_diag),r.t(),upper=False)  # solves r^T*u=Lambda^-1, u=r*x
         Zil,_ = torch.trtrs(Zil,r) # solves r*x=u
 
-        # OBS FOR GENERALISATION: lengthscale derivatives dependent on input dim
-        # terms involving loq|Q|
-        dlogQ_dsigma_f = 2.0*m/sigma_f -2.0*(sigma_n.pow(2)/sigma_f)*torch.trace(Zil)
-
         omega_squared = pow(math.pi*index.t() / (2.0*L), 2)
-        dlogQ_dlengthscale = ( torch.sum( 1-lengthscale.pow(2)*omega_squared )/lengthscale
-                               -sigma_n.pow(2) * torch.trace( Zil.mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )/lengthscale)) ) )
 
-        dlogQ_dsigma_n = 2.0*(n-m)/sigma_n + 2.0*sigma_n*torch.trace(Zil)
+        if covtypeNum.item() is 1: # se # OBS FOR GENERALISATION: lengthscale derivatives dependent on input dim
+            # terms involving loq|Q|
+            dlogQ_dlog_sigma_f = 2.0*m -2.0*(sigma_n.pow(2))*torch.trace(Zil)
 
-        # terms involving invQ
-        dyQiy_dsigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0/sigma_f
+            dlogQ_dlog_lengthscale = ( torch.sum( 1-lengthscale.pow(2)*omega_squared )
+                                   -sigma_n.pow(2) * torch.sum( Zil*torch.diag( 1-lengthscale.pow(2)*omega_squared.view(m) )  ,dim=1) )
 
-        dyQiy_dlengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )/lengthscale).mm(v))
+            dlogQ_dlog_sigma_n = 2.0*(n-m)+ 2.0*sigma_n.pow(2)*torch.trace(Zil)
 
-        dyQiy_dsigma_n = ( (2.0/sigma_n)*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
-                              +(2.0/sigma_n.pow(3))*y_train.view(1, n).mm(phi).mm(v)  -(2.0/sigma_n.pow(3))*y_train.dot(y_train) )
+            # terms involving invQ
+            dyQiy_dlog_sigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0
 
-        # collect the derivatives
-        grad1 = 0.5*(dlogQ_dsigma_f+dyQiy_dsigma_f)  # derivative wrt sigma_f
-        grad2 = 0.5*(dlogQ_dlengthscale+dyQiy_dlengthscale)  # derivative wrt lengthscale
-        grad3 = 0.5*(dlogQ_dsigma_n+dyQiy_dsigma_n)  # derivative wrt sigma_n
+            dyQiy_dlog_lengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )).mm(v))
+
+            dyQiy_dlog_sigma_n = ( 2.0*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
+                                  +(2.0*sigma_n.pow(-2))*y_train.view(1, n).mm(phi).mm(v)  -(2.0*sigma_n.pow(-2))*y_train.dot(y_train) )
+
+        if covtypeNum.item() is 2: # matern
+            nu = nu.item()
+            dim=1
+            SD_fac = (math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(nu+dim/2.0)*math.pow(2.0*nu,nu))/math.gamma(nu)
+            SD_par = 2*nu*lengthscale.pow(-2)+omega_squared
+
+            # terms involving loq|Q|
+            dlogQ_dlog_sigma_f = 2.0*m -2.0*(sigma_n.pow(2))*torch.trace(Zil)
+
+            dlogQ_dlog_lengthscale = ( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).sum()
+                                       -sigma_n.pow(2) * torch.sum( Zil*torch.diag( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).view(m)  )  ,dim=1)  )
+
+            dlogQ_dlog_sigma_n = 2.0*(n-m)+ 2.0*sigma_n.pow(2)*torch.trace(Zil)
+
+            # terms involving invQ
+            dyQiy_dlog_sigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0
+
+            dyQiy_dlog_lengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).view(m)  ).mm(v))
+
+            dyQiy_dlog_sigma_n = ( 2.0*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
+                                  +(2.0*sigma_n.pow(-2))*y_train.view(1, n).mm(phi).mm(v)  -(2.0*sigma_n.pow(-2))*y_train.dot(y_train) )
+
+        grad1 = 0.5*(dlogQ_dlog_sigma_f+dyQiy_dlog_sigma_f)  # derivative wrt log_sigma_f
+        grad2 = 0.5*(dlogQ_dlog_lengthscale+dyQiy_dlog_lengthscale)  # derivative wrt log_lengthscale
+        grad3 = 0.5*(dlogQ_dlog_sigma_n+dyQiy_dlog_sigma_n)  # derivative wrt log_sigma_n
 
         # now compute the m_train derivatives
         gradm = torch.zeros(n)  # tensor holding the partial derivatives
@@ -296,35 +409,49 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
             # sum up
             gradm[k] = 0.5*(dlogQ_dm+dyQiy_dm)
 
-        return grad1, grad2, grad3, gradm.view(n,1), None, None
+        return grad1, grad2, grad3, gradm.view(n,1), None, None, None, None
 
 
 # Deep version with numerical integration
 class NegMarginalLogLikelihood_deep_intMeas(nn.Module):
-    def __init__(self):
+    def __init__(self,covtype="se",nu=2.5):
         super(NegMarginalLogLikelihood_deep_intMeas, self).__init__()
+        self.covtype = covtype
+        self.nu = nu
 
-    def forward(self, sigma_f, lengthscale, sigma_n, phi_vec, y_train, m, L):
+    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, phi_vec, y_train, m, L):
         nll_st = NegMarginalLogLikelihood_deep_intMeas_st.apply
-        return nll_st(sigma_f, lengthscale, sigma_n, phi_vec, y_train, m, L)
+        return nll_st(log_sigma_f, log_lengthscale, log_sigma_n, phi_vec, y_train, m, L, self.covtype, self.nu)
 
 class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, sigma_f, lengthscale, sigma_n, phi_vec, y_train, m, L):
+    def forward(ctx, log_sigma_f, log_lengthscale, log_sigma_n, phi_vec, y_train, m, L, covtype, nu):
+        # extract hyperparameters
+        sigma_f = torch.exp(log_sigma_f)
+        lengthscale = torch.exp(log_lengthscale)
+        sigma_n = torch.exp(log_sigma_n)
+
         # extract the data set size
         n = y_train.size(0)
 
         # reform phi
-        phi = phi_vec.view(n,m) # OBS, beware of the vecorisation, view NOT as reshape
+        phi = phi_vec.view(n,m)
 
         # create an index vector, index=[1 2 3...]
-        index = torch.empty(1, m)
-        for i in range(m):
-            index[0, i]=i+1
+        index = torch.linspace(1, m, m).view(1,m)
 
         # diagonal of inverse lambda matrix, OBS FOR GENERALISATION: dependent on input dim
-        inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
-                                  torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+        if covtype is "se":
+            covtypeNum = torch.ones(1,dtype=torch.int32)
+            inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
+                                      torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+
+        if covtype is "matern":
+            covtypeNum = 2*torch.ones(1,dtype=torch.int32)
+            dim = 1
+            inv_lambda_diag = 1/( sigma_f.pow(2)*math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(nu+dim/2.0)*
+                    math.pow(2.0*nu,nu)*( 2.0*nu*lengthscale.pow(-2) + pow(math.pi*index.t() / (2.0*L), 2) ).pow(-nu-dim/2.0)
+                    / (math.gamma(nu)*lengthscale.pow(2.0*nu)) ).view(m)
 
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
         phi_lam = torch.cat( (phi , sigma_n * torch.diag( torch.sqrt(inv_lambda_diag) )),0)  # [Phi; sign*sqrt(Lambda^-1)]
@@ -341,47 +468,69 @@ class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
         nLL = 0.5*logQ + 0.5*yQiy  # neg log marg likelihood
 
         # save tensors for the backward pass
-        ctx.save_for_backward(sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi_vec, index, torch.as_tensor(L))
+        ctx.save_for_backward(sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi_vec, index, torch.as_tensor(L), covtypeNum, torch.as_tensor(nu))
 
         return nLL
 
     @staticmethod
     def backward(ctx, grad_output):
         # load tensors from the forward pass
-        sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi_vec, index, L, = ctx.saved_tensors
+        sigma_f, lengthscale, sigma_n, r, y_train, v, inv_lambda_diag, phi_vec, index, L, covtypeNum, nu, = ctx.saved_tensors
 
         m = inv_lambda_diag.size(0)  # nr of basis functions
         n = y_train.size(0)  # nr of data points
 
         # reform phi
-        phi = phi_vec.view(n,m) # OBS, beware of the vecorisation, view NOT as reshape
+        phi = phi_vec.view(n,m)
 
         # computing Z\Lambda^-1
         Zil,_ = torch.trtrs(torch.diag(inv_lambda_diag),r.t(),upper=False)  # solves r^T*u=Lambda^-1, u=r*x
         Zil,_ = torch.trtrs(Zil,r) # solves r*x=u
 
-        # OBS FOR GENERALISATION: lengthscale derivatives dependent on input dim
-        # terms involving loq|Q|
-        dlogQ_dsigma_f = 2.0*m/sigma_f -2.0*(sigma_n.pow(2)/sigma_f)*torch.trace(Zil)
-
         omega_squared = pow(math.pi*index.t() / (2.0*L), 2)
-        dlogQ_dlengthscale = ( torch.sum( 1-lengthscale.pow(2)*omega_squared )/lengthscale
-                               -sigma_n.pow(2) * torch.trace( Zil.mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )/lengthscale)) ) )
 
-        dlogQ_dsigma_n = 2.0*(n-m)/sigma_n + 2.0*sigma_n*torch.trace(Zil)
+        if covtypeNum.item() is 1: # se # OBS FOR GENERALISATION: lengthscale derivatives dependent on input dim
+            # terms involving loq|Q|
+            dlogQ_dlog_sigma_f = 2.0*m -2.0*(sigma_n.pow(2))*torch.trace(Zil)
 
-        # terms involving invQ
-        dyQiy_dsigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0/sigma_f
+            dlogQ_dlog_lengthscale = ( torch.sum( 1-lengthscale.pow(2)*omega_squared )
+                                   -sigma_n.pow(2) * torch.sum( Zil*torch.diag( 1-lengthscale.pow(2)*omega_squared.view(m) )  ,dim=1) )
 
-        dyQiy_dlengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )/lengthscale).mm(v))
+            dlogQ_dlog_sigma_n = 2.0*(n-m)+ 2.0*sigma_n.pow(2)*torch.trace(Zil)
 
-        dyQiy_dsigma_n = ( (2.0/sigma_n)*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
-                              +(2.0/sigma_n.pow(3))*y_train.view(1, n).mm(phi).mm(v)  -(2.0/sigma_n.pow(3))*y_train.dot(y_train) )
+            # terms involving invQ
+            dyQiy_dlog_sigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0
 
-        # collect the derivatives
-        grad1 = 0.5*(dlogQ_dsigma_f+dyQiy_dsigma_f)  # derivative wrt sigma_f
-        grad2 = 0.5*(dlogQ_dlengthscale+dyQiy_dlengthscale)  # derivative wrt lengthscale
-        grad3 = 0.5*(dlogQ_dsigma_n+dyQiy_dsigma_n)  # derivative wrt sigma_n
+            dyQiy_dlog_lengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag(( 1-lengthscale.pow(2)*omega_squared.view(m) )).mm(v))
+
+            dyQiy_dlog_sigma_n = ( 2.0*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
+                                  +(2.0*sigma_n.pow(-2))*y_train.view(1, n).mm(phi).mm(v)  -(2.0*sigma_n.pow(-2))*y_train.dot(y_train) )
+
+        if covtypeNum.item() is 2: # matern
+            nu = nu.item()
+            dim=1
+            SD_fac = (math.pow(2.0,dim)*math.pow(math.pi,dim/2.0)*math.gamma(nu+dim/2.0)*math.pow(2.0*nu,nu))/math.gamma(nu)
+            SD_par = 2*nu*lengthscale.pow(-2)+omega_squared
+
+            # terms involving loq|Q|
+            dlogQ_dlog_sigma_f = 2.0*m -2.0*(sigma_n.pow(2))*torch.trace(Zil)
+
+            dlogQ_dlog_lengthscale = ( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).sum()
+                                       -sigma_n.pow(2) * torch.sum( Zil*torch.diag( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).view(m)  )  ,dim=1)  )
+
+            dlogQ_dlog_sigma_n = 2.0*(n-m)+ 2.0*sigma_n.pow(2)*torch.trace(Zil)
+
+            # terms involving invQ
+            dyQiy_dlog_sigma_f = -y_train.view(1, n).mm(phi).view(-1).dot( Zil.mm(v).view(-1) ) * 2.0
+
+            dyQiy_dlog_lengthscale = -y_train.view(1, n).mm(phi).mm(Zil).mm(torch.diag( 2.0*nu*( 2.0*(nu+dim/2.0)*lengthscale.pow(-2)/SD_par - 1 ).view(m)  ).mm(v))
+
+            dyQiy_dlog_sigma_n = ( 2.0*( y_train.view(1, n).mm(phi).mm(Zil).mm(v) )
+                                  +(2.0*sigma_n.pow(-2))*y_train.view(1, n).mm(phi).mm(v)  -(2.0*sigma_n.pow(-2))*y_train.dot(y_train) )
+
+        grad1 = 0.5*(dlogQ_dlog_sigma_f+dyQiy_dlog_sigma_f)  # derivative wrt log_sigma_f
+        grad2 = 0.5*(dlogQ_dlog_lengthscale+dyQiy_dlog_lengthscale)  # derivative wrt log_lengthscale
+        grad3 = 0.5*(dlogQ_dlog_sigma_n+dyQiy_dlog_sigma_n)  # derivative wrt log_sigma_n
 
         # now compute the phi derivatives (can be done better using the properties of the single entry matrices J (see matrix cookbook))
         gradphi = torch.zeros(n,m)
@@ -390,8 +539,7 @@ class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
                 # compute Jkl and Jlk
                 Jkl = torch.zeros(n,m)
                 Jkl[k,l]=1.0
-                Jlk = torch.zeros(m,n)
-                Jlk[l,k]=1.0
+                Jlk = Jkl.t()
 
                 # compute dZdphi
                 dZdphi = phi.t().mm(Jkl) + Jlk.mm(phi)
@@ -401,7 +549,7 @@ class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
                 ZidZdphi,_ = torch.trtrs(ZidZdphi,r) # solves r*x=u
 
                 # compute Z\Jlk
-                ZiJlk,_ = torch.trtrs(Jlk,r.t(),upper=False)  # solves r^T*u=dZdphi, u=r*x
+                ZiJlk,_ = torch.trtrs(Jlk,r.t(),upper=False)  # solves r^T*u=Jlk, u=r*x
                 ZiJlk,_ = torch.trtrs(ZiJlk,r) # solves r*x=u
 
                 # log|Q| part
@@ -409,10 +557,10 @@ class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
 
                 # y^T*Q^-1*y part
                 dyQiy_dphi = -sigma_n.pow(-2)*(  y_train.view(1, n).mm(phi).mm(ZiJlk).mm(y_train.view(n,1))
-                                                 +y_train.view(1, n).mm(Jkl).mm(v)
-                                                 - y_train.view(1, n).mm(phi).mm(ZidZdphi).mm(v))
+                                                +y_train.view(1, n).mm(Jkl).mm(v)
+                                                -y_train.view(1, n).mm(phi).mm(ZidZdphi).mm(v))
 
                 # sum up
-                gradphi[k] = 0.5*(dlogQ_dphi + dyQiy_dphi)
+                gradphi[k,l] = 0.5*(dlogQ_dphi + dyQiy_dphi)
 
-        return grad1, grad2, grad3, gradphi.view(m*n,1), None, None, None
+        return grad1, grad2, grad3, gradphi.view(m*n,1), None, None, None, None, None
