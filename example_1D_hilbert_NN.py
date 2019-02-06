@@ -43,7 +43,8 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
-        self.scale = 5.0
+        # self.scale = 5.0
+        self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
         self.gp = gprh.GP_1D(sigma_f=1.0, lengthscale=1, sigma_n=2*noise_std)
 
     def forward(self, x_train, y_train=None, m=None, x_test=None):
@@ -111,7 +112,7 @@ for i in range(training_iterations):
 
     scheduler.step(i)
 
-    print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale.exp(), model.gp.log_sigma_n.exp() ))
+    print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.3f - scale: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale.exp(), model.gp.log_sigma_n.exp(), model.scale ))
 
 
 
