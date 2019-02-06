@@ -79,6 +79,7 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
+        self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
         self.gp = gprh.GP_1D_new(sigma_f=1, lengthscale=12, sigma_n=noise_std)
 
     def forward(self, x_train=None, y_train=None, phi=None, m=None, L=None, x_test=None):
@@ -98,6 +99,7 @@ class DeepGP(torch.nn.Module):
             h = self.tanh3(h)
             h = self.linear4(h)
             h = self.tanh4(h)
+            h = self.scale * h
 
             # h[x_train<0.5]=-1
             # h[x_train>0.5]=1
@@ -112,6 +114,7 @@ class DeepGP(torch.nn.Module):
             h2 = self.tanh3(h2)
             h2 = self.linear4(h2)
             h2 = self.tanh4(h2)
+            h2 = self.scale * h2
 
             # h2[x_test<0.5]=-1
             # h2[x_test>0.5]=1
@@ -123,9 +126,7 @@ class DeepGP(torch.nn.Module):
             out = h
         return out
 
-model=torch.load("mymodel")
-
-# model=DeepGP()
+model=DeepGP()
 
 model.gp.covtype="se"
 nLL = gprh.NegMarginalLogLikelihood_deep_intMeas(model.gp.covtype,model.gp.nu)  # this is the loss function
@@ -157,22 +158,22 @@ def getphi(model,L):
 # PICK BETTER OPTIMISER
 optimizer = torch.optim.Adam([
     {'params': model.parameters()},
-],lr=0.1)
+],lr=0.02)
 
 # # set numerical integration tool
 # simpsons = intgr.Simpsons(fcount_out=False, fcount_max=1e3, hmin=None)
 
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.95,min_lr=1e-6)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.99,min_lr=1e-6)
 
-training_iterations = 0
-tun=6
+training_iterations = 4000
+tun=3
 # def train():
 for i in range(training_iterations):
     #def closure():
     # Zero backprop gradients
     optimizer.zero_grad()
 
-    L = max(1.5,math.pi*m*torch.sqrt(model.gp.log_lengthscale.exp().detach().pow(2))/(2.0*tun))
+    L = max(1.5*model.scale,math.pi*m*torch.sqrt(model.gp.log_lengthscale.exp().detach().pow(2))/(2.0*tun))
 
     if points:
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(model(train_x)+L)*0.5/L) # basis functions
@@ -206,7 +207,7 @@ for i in range(training_iterations):
     optimizer.step()
     scheduler.step(i)
 
-    print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.3f - L: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale.exp(), model.gp.log_sigma_n.exp() ,L ))
+    print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.5f - L: %.3f - scale: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale.exp(), model.gp.log_sigma_n.exp(), L, model.scale.item() ))
 
 
 # train()
