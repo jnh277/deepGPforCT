@@ -79,7 +79,7 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
-        self.gp = gprh.GP_1D_new(sigma_f=1, lengthscale=12, sigma_n=noise_std)
+        self.gp = gprh.GP_1D_new(sigma_f=1, lengthscale=30, sigma_n=noise_std)
 
     def forward(self, x_train=None, y_train=None, phi=None, m=None, L=None, x_test=None):
         """
@@ -123,9 +123,9 @@ class DeepGP(torch.nn.Module):
             out = h
         return out
 
-model=torch.load("mymodel")
+# model=torch.load("mymodel")
 
-# model=DeepGP()
+model=DeepGP()
 
 model.gp.covtype="se"
 nLL = gprh.NegMarginalLogLikelihood_deep_intMeas(model.gp.covtype,model.gp.nu)  # this is the loss function
@@ -164,8 +164,8 @@ optimizer = torch.optim.Adam([
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.95,min_lr=1e-6)
 
-training_iterations = 0
-tun=6
+training_iterations = 400
+tun=3
 # def train():
 for i in range(training_iterations):
     #def closure():
