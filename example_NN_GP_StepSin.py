@@ -18,9 +18,20 @@ def truefunc(omega,points):
     y[g<0.15] -= 2.0
     return y
 
+# def truefunc(omega,points):
+#     step=0.5
+#     g = torch.squeeze(points,1).clone()
+#     y = g.clone()
+#     p1 = g >= step; y1 = y[p1]
+#     p2 = g < step; y2 = y[p2]
+#     y[p1] = torch.sin(y1 * omega)- 1.0
+#     y[p2] = torch.sin(y2* omega) + 1.0
+#     # y[g<0.15] -= 2.0
+#     return y
+
 omega=4*math.pi
-noise_std=0.1
-n = 400
+noise_std=0.05
+n = 200
 train_x = torch.linspace(0,1, n).view(n,1)
 train_y = truefunc(omega,train_x) + torch.randn(n) * noise_std
 
@@ -29,10 +40,6 @@ test_x = torch.linspace(0, 1, nt).view(nt, 1)
 
 
 data_dim = train_x.size(-1)
-
-
-
-
 
 class DeepGP(torch.nn.Module):
     def __init__(self):
@@ -48,6 +55,7 @@ class DeepGP(torch.nn.Module):
         self.tanh2 = torch.nn.Tanh()
         self.linear3 = torch.nn.Linear(6, 1)
         self.tanh3 = torch.nn.Sigmoid()
+        self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
 
         self.linear21 = torch.nn.Linear(1, 30)
         self.tanh21 = torch.nn.Tanh()
@@ -55,7 +63,6 @@ class DeepGP(torch.nn.Module):
         self.tanh22 = torch.nn.Tanh()
         self.linear23 = torch.nn.Linear(6, 1)
 
-        self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
         self.gp = gpr.GP_SE(sigma_f=1.0, lengthscale=[1, 1], sigma_n=1)
 
     def forward(self, x_train, y_train=None, x_test=None):
@@ -116,7 +123,7 @@ optimizer = torch.optim.Adam([
     {'params': deepGP.parameters()},
 ], lr=0.005)
 
-training_iterations = 800
+training_iterations = 2500
 
 
 def train():
@@ -148,14 +155,14 @@ with torch.no_grad():
     # Plot true function as solid black
     ax.plot(test_x.numpy(), truefunc(omega,test_x).numpy(), 'k')
 
-    # plot latent outputs
-    train_m = deepGP(test_x)
-    ax.plot(test_x.numpy(), train_m[:,0].numpy(), 'g')
-    ax.plot(test_x.numpy(), train_m[:,1].numpy(), 'g')
+    # # plot latent outputs
+    # train_m = deepGP(test_x)
+    # ax.plot(test_x.numpy(), train_m[:,0].numpy(), 'g')
+    # ax.plot(test_x.numpy(), train_m[:,1].numpy(), 'g')
 
     # plot predictions
     ax.plot(test_x.numpy(), test_f.numpy(), 'b')
     ax.fill_between(torch.squeeze(test_x,1).numpy(), lower.numpy(), upper.numpy(), alpha=0.5)
     #ax.set_ylim([-2, 2])
-    ax.legend(['Observed Data', 'Mean', 'Confidence'])
+    ax.legend(['Observed Data', 'True function', 'Mean', 'Confidence'])
     plt.show()

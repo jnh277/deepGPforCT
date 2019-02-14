@@ -5,6 +5,7 @@ import gp_regression_hilbert as gprh
 import integration as intgr
 import numpy as np
 import time
+import itertools as it
 
 def cosfunc(omega,points):
     return torch.cos(torch.squeeze(points, 1) * omega)
@@ -17,6 +18,15 @@ def stepfunc(points):
     out[points<0.5]=-1
     out[points>0.5]=1
     return out.view(-1)
+    # step=0.5
+    # g = torch.squeeze(points,1).clone()
+    # y = g.clone()
+    # p1 = g >= step; y1 = y[p1]
+    # p2 = g < step; y2 = y[p2]
+    # y[p1] = torch.sin(y1* 0.5 * omega)- 1.0
+    # y[p2] = torch.sin(y2* 5 * omega)*torch.exp(torch.sin(-10*y2)) + 1.0
+    # y[g<0.15] -= 2.0
+    # return y
 
 def stepfunc_int(points_lims):
     out=points_lims.clone()-0.5
@@ -26,8 +36,8 @@ def stepfunc_int(points_lims):
     out2[out[:,1]<0]=-out2[out[:,1]<0]
     return out2-out1
 
-integral=True
-points=False#True
+integral=False
+points=not(integral)
 
 if integral:
     # INTEGRAL INPUTS
@@ -62,7 +72,10 @@ if points:
     # END OF POINT INPUTS
 
 # set appr params
-m = 10 # nr of basis functions
+m = [8,5] # nr of basis functions in each latent direction: Change this to add latent outputs
+mt= np.prod(m) # total nr of basis functions
+diml = len(m) # dimension of latent output
+L = torch.empty(diml)
 
 class DeepGP(torch.nn.Module):
     def __init__(self):
@@ -79,88 +92,147 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
-<<<<<<< HEAD
-        self.gp = gprh.GP_1D_new(sigma_f=1, lengthscale=30, sigma_n=noise_std)
-=======
         self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
-        self.gp = gprh.GP_1D_new(sigma_f=1, lengthscale=12, sigma_n=noise_std)
->>>>>>> cb0a9a3b03da5cb47d0886354b0c67f45ebc89cb
 
-    def forward(self, x_train=None, y_train=None, phi=None, m=None, L=None, x_test=None):
+        if diml is 2:
+            self.linear21 = torch.nn.Linear(1, 30)
+            self.tanh21 = torch.nn.Tanh()
+            self.linear22 = torch.nn.Linear(30, 6)
+            self.tanh22 = torch.nn.Tanh()
+            self.linear23 = torch.nn.Linear(6, 1)
+
+            self.gp = gprh.GP_new(sigma_f=1, lengthscale=[10,10], sigma_n=noise_std)
+
+        if diml is 1:
+            self.gp = gprh.GP_new(sigma_f=1, lengthscale=[10], sigma_n=noise_std)
+
+    def forward(self, x_train=None, y_train=None, phi=None, sq_lambda=None, L=None, x_test=None):
         """
         In the forward function we accept a Tensor of input data and we must return
         a Tensor of output data. We can use Modules defined in the constructor as
         well as arbitrary operators on Tensors.
         """
         if x_train is not None:
-            h = x_train.clone()
+            h11 = x_train.clone()
+            h11 = self.linear1(h11)
+            h11 = self.tanh1(h11)
+            h11 = self.linear2(h11)
+            h11 = self.tanh2(h11)
+            h11 = self.linear3(h11)
+            h11 = self.tanh3(h11)
+            h11 = self.linear4(h11)
+            h11 = self.tanh4(h11)
+            h11 = self.scale * h11
 
-            h = self.linear1(h)
-            h = self.tanh1(h)
-            h = self.linear2(h)
-            h = self.tanh2(h)
-            h = self.linear3(h)
-            h = self.tanh3(h)
-            h = self.linear4(h)
-            h = self.tanh4(h)
-            h = self.scale * h
+            if diml is 2:
+                h12 = x_train.clone()
+                h12 = self.linear21(h12)
+                h12 = self.tanh21(h12)
+                h12 = self.linear22(h12)
+                h12 = self.tanh22(h12)
+                h12 = self.linear23(h12)
 
-            # h[x_train<0.5]=-1
-            # h[x_train>0.5]=1
+                h = torch.cat((h11,h12),1)
+
+            if diml is 1:
+                h = h11
+
         if x_test is not None:
-            h2 = x_test.clone()
+            h21 = x_test.clone()
+            h21 = self.linear1(h21)
+            h21 = self.tanh1(h21)
+            h21 = self.linear2(h21)
+            h21 = self.tanh2(h21)
+            h21 = self.linear3(h21)
+            h21 = self.tanh3(h21)
+            h21 = self.linear4(h21)
+            h21 = self.tanh4(h21)
+            h21 = self.scale * h21
 
-            h2 = self.linear1(h2)
-            h2 = self.tanh1(h2)
-            h2 = self.linear2(h2)
-            h2 = self.tanh2(h2)
-            h2 = self.linear3(h2)
-            h2 = self.tanh3(h2)
-            h2 = self.linear4(h2)
-            h2 = self.tanh4(h2)
-            h2 = self.scale * h2
+            if diml is 2:
+                h22 = x_test.clone()
+                h22 = self.linear21(h22)
+                h22 = self.tanh21(h22)
+                h22 = self.linear22(h22)
+                h22 = self.tanh22(h22)
+                h22 = self.linear23(h22)
 
-            # h2[x_test<0.5]=-1
-            # h2[x_test>0.5]=1
+                h2 = torch.cat((h21,h22),1)
+
+            if diml is 1:
+                h2 = h21
         else:
             h2 = None
         if y_train is not None:
-            out = self.gp(y_train,phi,m,L,h2)
+            out = self.gp(y_train,phi,sq_lambda,L,h2)
         else:
             out = h
         return out
 
-<<<<<<< HEAD
-# model=torch.load("mymodel")
-
-=======
->>>>>>> cb0a9a3b03da5cb47d0886354b0c67f45ebc89cb
 model=DeepGP()
 
-model.gp.covtype="se"
-nLL = gprh.NegMarginalLogLikelihood_deep_intMeas(model.gp.covtype,model.gp.nu)  # this is the loss function
+nLL = gprh.NegMarginalLogLikelihood_deep_intMeas()  # this is the loss function
 
-# create an index vector, index=[1 2 3...]
-index = torch.linspace(1, m, m).view(1,m)
+# create an index vector to store basis function permutations
+index=torch.empty(mt,diml)
+
+mmlist=[]
+for q in range(diml):
+    mmlist.append(np.linspace(1, m[q], m[q]))
+
+# hard coded, but more than sufficient...
+if diml is 1:
+    perm = list(it.product(mmlist[0]))
+elif diml is 2:
+    perm = list(it.product(mmlist[0],mmlist[1]))
+elif diml is 3:
+    perm = list(it.product(mmlist[0],mmlist[1],mmlist[2]))
+elif diml is 4:
+    perm = list(it.product(mmlist[0],mmlist[1],mmlist[2],mmlist[3]))
+elif diml is 5:
+    perm = list(it.product(mmlist[0],mmlist[1],mmlist[2],mmlist[3],mmlist[4]))
+
+for q in range(mt):
+    index[q,:] = torch.from_numpy(np.asarray(list(it.chain.from_iterable(perm[q:q+1]))))
 
 ###### semi-vectorised integration
-def getphi(model,L):
-    phi = torch.Tensor(n,m)
-    omega = math.pi*index / (2.0*L)
-
-    ni = 500
+int_method = 1 # 1)trapezoidal, 2)simpsons standard, 3)simpsons 3/8
+ni = 500 # nr of intervals
+if int_method is 1:
+    # trapezoidal
+    sc=2*torch.ones(1,ni+1)
+    sc[0,0]=1; sc[0,ni]=1
+    fact = 1.0/2.0
+elif int_method is 2:
+    # simpsons standard
+    ni = 2*round(ni/2)
+    sc=torch.ones(1,ni+1)
+    sc[0,ni-1]=4;
+    sc[0,1:ni-1] = torch.Tensor([4,2]).repeat(1,int(ni/2-1))
+    fact = 1.0/3.0
+else:
+    # simpsons 3/8
     ni = 3*round(ni/3)
     sc=torch.ones(1,ni+1)
     sc[0,ni-1]=3; sc[0,ni-2]=3
     sc[0,1:ni-2] = torch.Tensor([3,3,2]).repeat(1,int(ni/3-1))
+    fact = 3.0/8.0
+
+def getphi(model,L,sq_lambda):
+    phi = torch.empty(n,mt)
+
     for q in range(n):
         a = train_x[q,0].item()
         b = train_x[q,1].item()
         h = (b-a)/ni
 
-        points2eval = torch.linspace(a,b,ni+1).view(ni+1,1)
+        zz = model(torch.linspace(a,b,ni+1).view(ni+1,1))
 
-        phi[q,:] = (3*h/8)*math.pow(L,-0.5)*torch.sum(torch.sin((model(points2eval)+L)*omega)*sc.t() , dim=0)
+        intvals = torch.ones(ni+1,mt)
+        for w in range(L.size(0)):
+            intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
+
+        phi[q,:] = fact*h*torch.sum(intvals*sc.t() , dim=0)
     return phi
 ##### semi-vectorised integration
 
@@ -174,11 +246,7 @@ optimizer = torch.optim.Adam([
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.99,min_lr=1e-6)
 
-<<<<<<< HEAD
 training_iterations = 400
-=======
-training_iterations = 4000
->>>>>>> cb0a9a3b03da5cb47d0886354b0c67f45ebc89cb
 tun=3
 # def train():
 for i in range(training_iterations):
@@ -186,55 +254,54 @@ for i in range(training_iterations):
     # Zero backprop gradients
     optimizer.zero_grad()
 
-    L = max(1.5*model.scale,math.pi*m*torch.sqrt(model.gp.log_lengthscale.exp().detach().pow(2))/(2.0*tun))
+    for q in range(diml): # todo: specify lower bounds on L (maybe we could evaluate a set of points to estimate the latent output range)
+        L[q] = math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*tun)
+        sq_lambda = math.pi*index / (2.0*L)
 
     if points:
-        phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(model(train_x)+L)*0.5/L) # basis functions
+        phi = torch.ones(n,mt)
+        zz = model(train_x)
+        for q in range(diml):
+            phi *= ( 1/math.sqrt(L[q]) ) * torch.sin((zz[:,q].view(n,1)+L[q])*sq_lambda[:,q].view(1,mt)) # basis functions
 
     if integral:
-        # t=time.time()
-        # # calculate phi using numerical integration
-        # phi = torch.zeros(n,m)
-        # for k in range(n):
-        #     for q in range(m):
-        #         phi[k,q] = simpsons(lambda x: ( 1/math.sqrt(L) )*torch.sin(math.pi*(q+1)*(model(x.view(1))+L)*0.5/L), train_x[k,0].view(1), train_x[k,1].view(1), 1e-6)
-        # print(time.time()-t)
-
-        # t=time.time()
-        # # 1 for-loop
-        # phi2 = torch.zeros(n*m,1)
-        # for k in range(n*m):
-        #     j=math.floor(k/m)
-        #     q=k%m
-        #     phi2[k,0] = simpsons(lambda x: ( 1/math.sqrt(L) )*torch.sin(math.pi*(q+1)*(model(x.view(1))+L)*0.5/L), train_x[j,0].view(1), train_x[j,1].view(1), 1e-6)
-        # print(time.time()-t)
-
-        # t=time.time()
-        phi = getphi(model,L)
-        # print(time.time()-t)
+        phi = getphi(model,L,sq_lambda)
 
     # Calc loss and backprop derivatives
-    loss = nLL(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi.view(n*m,1), train_y, m, L)
+    loss = nLL(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi.view(n*mt,1), train_y, sq_lambda)
     loss.backward()
 
     optimizer.step()
     scheduler.step(i)
 
-    print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.5f - L: %.3f - scale: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale.exp(), model.gp.log_sigma_n.exp(), L, model.scale.item() ))
+    if diml is 1:
+        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.5f - L: %.3f - scale: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_sigma_n.exp(), L[0], model.scale.item() ))
+    elif diml is 2:
+        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l1: %.3f - l2: %.3f - sign: %.5f - L1: %.3f - L2: %.3f - scale: %.3f' % (i + 1, training_iterations, loss.item(), model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_sigma_n.exp(), L[0], L[1], model.scale.item() ))
 
 
 # train()
 print(model)
 
-L = max(1.5,math.pi*m*torch.sqrt(model.gp.log_lengthscale.exp().detach().pow(2))/(2.0*tun))
+# update L
+for q in range(diml):
+    L[q] = math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*tun)
+
+# update sq_lambda
+sq_lambda = math.pi*index / (2.0*L)
+
+# compute phi
 if integral:
-    phi = getphi(model,L)
+    phi = getphi(model,L,sq_lambda)
 
 if points:
-    phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(model(train_x)+L)*0.5/L) # basis functions
+    phi = torch.ones(n,mt)
+    zz = model(train_x)
+    for q in range(diml):
+        phi *= ( 1/math.sqrt(L[q]) ) * torch.sin((zz[:,q].view(n,1)+L[q])*sq_lambda[:,q].view(1,mt))
 
 # now make predictions
-test_f, cov_f = model(None, train_y, phi, m, L, test_x)
+test_f, cov_f = model(None, train_y, phi, sq_lambda, L, test_x)
 
 if points:
     with torch.no_grad():
@@ -247,9 +314,10 @@ if points:
         ax.plot(test_x.numpy(), stepfunc(test_x).numpy(), 'k')
         # ax.plot(test_x.numpy(), cosfunc(omega,test_x).numpy(), 'k')
 
-        # plot h
+        # plot latent outputs
         train_m = model(test_x)
-        ax.plot(test_x.numpy(), train_m.numpy(), 'g')
+        for w in range(diml):
+            ax.plot(test_x.numpy(), train_m[:,w].numpy(), 'g')
 
         # plot 95% credibility region
         upper = torch.squeeze(test_f, 1) + 2*cov_f.pow(0.5)
@@ -275,9 +343,10 @@ if integral:
         for i in range(n):
             ax.plot(train_x[i,:].numpy(),np.zeros(2)-0.01*i)
 
-        # plot h
+        # plot latent outputs
         train_m = model(test_x)
-        ax.plot(test_x.numpy(), train_m.numpy(), 'g')
+        for w in range(diml):
+            ax.plot(test_x.numpy(), train_m[:,w].numpy(), 'g')
 
         # plot 95% credibility region
         upper = torch.squeeze(test_f, 1) + 2*cov_f.pow(0.5)
