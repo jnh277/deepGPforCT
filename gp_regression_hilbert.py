@@ -1,6 +1,8 @@
 import torch.nn as nn
 import torch
 import math
+import time
+import numpy as np
 
 # TODO: extend to 2D
 
@@ -614,36 +616,117 @@ class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
         grad2 = 0.5*(dlogQ_dlog_lengthscale+dyQiy_dlog_lengthscale)  # derivative wrt log_lengthscale
         grad3 = 0.5*(dlogQ_dlog_sigma_n+dyQiy_dlog_sigma_n)  # derivative wrt log_sigma_n
 
+        times=np.zeros(5)
         # now compute the phi derivatives (can be done better using the properties of the single entry matrices J (see matrix cookbook))
-        gradphi = torch.zeros(n,m)
-        for k in range(n):
-            for l in range(m):
-                # compute Jkl and Jlk
-                Jkl = torch.zeros(n,m)
-                Jkl[k,l]=1.0
-                Jlk = Jkl.t()
+        gradphi = torch.zeros(n*m,1)
+        for q in range(n*m):
+            # print(q)
 
-                # compute dZdphi
-                dZdphi = phi.t().mm(Jkl) + Jlk.mm(phi)
+            k = math.floor(q/m)
+            l = q%m
 
-                # compute Z\dZdphi
-                ZidZdphi,_ = torch.trtrs(dZdphi,r.t(),upper=False)  # solves r^T*u=dZdphi, u=r*x
-                ZidZdphi,_ = torch.trtrs(ZidZdphi,r) # solves r*x=u
+            t=time.time() ################ start timing
+            # compute Jkl and Jlk
+            Jkl = torch.zeros(n,m)
+            Jkl[k,l]=1.0
+            Jlk = Jkl.t()
+            times[0]+=time.time()-t ################ end timing
 
-                # compute Z\Jlk
-                ZiJlk,_ = torch.trtrs(Jlk,r.t(),upper=False)  # solves r^T*u=Jlk, u=r*x
-                ZiJlk,_ = torch.trtrs(ZiJlk,r) # solves r*x=u
+            t=time.time() ################ start timing
+            # compute dZdphi
+            dZdphi = phi.t().mm(Jkl) + Jlk.mm(phi)
+            times[1]+=time.time()-t ################ end timing
 
-                # log|Q| part
-                dlogQ_dphi = torch.trace(ZidZdphi)
+            t=time.time() ################ start timing
+            # compute Z\dZdphi
+            ZidZdphi,_ = torch.trtrs(dZdphi,r.t(),upper=False)  # solves r^T*u=dZdphi, u=r*x
+            ZidZdphi,_ = torch.trtrs(ZidZdphi,r) # solves r*x=u
+            times[2]+=time.time()-t ################ end timing
 
-                # y^T*Q^-1*y part
-                dyQiy_dphi = -sigma_n.pow(-2)*y_train.view(1, n).mm(
-                                                  phi.mm(ZiJlk).mm(y_train.view(n,1))
-                                                + Jkl.mm(v)
-                                                - phi.mm(ZidZdphi).mm(v) )
+            t=time.time() ################ start timing
+            # compute Z\Jlk
+            ZiJlk,_ = torch.trtrs(Jlk,r.t(),upper=False)  # solves r^T*u=Jlk, u=r*x
+            ZiJlk,_ = torch.trtrs(ZiJlk,r) # solves r*x=u
+            times[3]+=time.time()-t ################ end timing
 
-                # sum up
-                gradphi[k,l] = 0.5*(dlogQ_dphi + dyQiy_dphi)
+            t=time.time() ################ start timing
+            # log|Q| part
+            dlogQ_dphi = torch.trace(ZidZdphi)
 
-        return grad1, grad2, grad3, gradphi.view(m*n,1), None, None, None, None, None
+            # y^T*Q^-1*y part
+            dyQiy_dphi = -sigma_n.pow(-2)*y_train.view(1, n).mm(
+                                              phi.mm(ZiJlk).mm(y_train.view(n,1))
+                                            + (Jkl
+                                            - phi.mm(ZidZdphi) ).mm(v) )
+            times[4]+=time.time()-t ################ end timing
+
+            # sum up
+            gradphi[q] = 0.5*(dlogQ_dphi + dyQiy_dphi)
+
+        # print('Computing gradphi: %.10f' %(time.time()-t))
+        print(times)
+        return grad1, grad2, grad3, gradphi, None, None, None, None, None
+
+
+
+
+# Deep version with numerical integration and no backward implementation, just relying on autoback features
+class NegMarginalLogLikelihood_deep_intMeas_noBackward(nn.Module):
+    def __init__(self):
+        super(NegMarginalLogLikelihood_deep_intMeas_noBackward, self).__init__()
+
+    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, phi_vec, y_train, sq_lambda):
+        # extract hyperparameters
+        sigma_f = torch.exp(log_sigma_f)
+        lengthscale = torch.exp(log_lengthscale)
+        sigma_n = torch.exp(log_sigma_n)
+
+        # extract the data set size
+        n = y_train.size(0)
+
+        # number of basis functions
+        m = sq_lambda.size(0)
+
+        # input dimension
+        dim = sq_lambda.size(1)
+
+        # reform phi
+        phi = phi_vec.view(n,m)
+
+        # diagonal of inverse lambda matrix
+        lprod=torch.ones(1)
+        omega_sum=torch.zeros(m,1)
+        for q in range(dim):
+            lprod*=lengthscale[q].pow(2)
+            omega_sum+=lengthscale[q].pow(2)*sq_lambda[:,q].view(m,1).pow(2)
+
+        inv_lambda_diag = ( sigma_f.pow(-2) * math.pow(2.0*math.pi,dim/2) *torch.pow(lprod, -0.5)*
+                                  torch.exp( 0.5*omega_sum ) ).view(m)
+
+        Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
+
+        try:
+            c = torch.cholesky(Z, upper=True)
+        except: # not positive definite
+            add = torch.eig(Z)[0][:,0].min().detach()
+            iter=0
+            while add<1e-6: # keeping adding to the diagonal until fixed
+                Z = Z + 1e-6*torch.eye(m)
+                add = torch.eig(Z)[0][:,0].min().detach()
+                iter+=1
+            c = torch.cholesky(Z, upper=True)
+            print('Exception occured: %d' %(iter))
+
+
+        v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)=Z\(Phi'*y)
+
+        n=y_train.size(0)
+        logQ = ( (n-m)*torch.log(sigma_n.pow(2))
+                + 2.0*torch.sum(torch.log( c.diag() ))
+                + torch.sum(torch.log(1/inv_lambda_diag)) )
+        yQiy = sigma_n.pow(-2)*( y_train.dot(y_train) - v.view(m).dot(y_train.view(1, n).mm(phi).view(m) ) )
+
+        nLL = 0.5*logQ + 0.5*yQiy  # neg log marg likelihood
+
+        return nLL
+
