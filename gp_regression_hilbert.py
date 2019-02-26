@@ -3,8 +3,8 @@ import torch
 import math
 import time
 import numpy as np
-
-# TODO: extend to 2D
+import itertools as it
+from matplotlib import pyplot as plt
 
 class GP_1D(nn.Module):
     def __init__(self, sigma_f, lengthscale, sigma_n, covtype="se", nu=2.5):
@@ -246,7 +246,7 @@ class NegMarginalLogLikelihood_st(torch.autograd.Function):
         n = x_train.size(0)
 
         # determine L automatically
-        tun = 3  # tuning parameter
+        tun = 4  # tuning parameter
         L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
 
         # compute the Phi matrix
@@ -341,6 +341,64 @@ class NegMarginalLogLikelihood_st(torch.autograd.Function):
         grad2 = 0.5*(dlogQ_dlog_lengthscale+dyQiy_dlog_lengthscale)  # derivative wrt log_lengthscale
         grad3 = 0.5*(dlogQ_dlog_sigma_n+dyQiy_dlog_sigma_n)  # derivative wrt log_sigma_n
         return grad1, grad2, grad3, None, None, None, None, None
+
+
+# neg log marg like, without backward
+class NegMarginalLogLikelihood_noBackward(nn.Module):
+    def __init__(self):
+        super(NegMarginalLogLikelihood_noBackward, self).__init__()
+
+    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, x_train, y_train, m):
+        # extract hyperparameters
+        sigma_f = torch.exp(log_sigma_f)
+        lengthscale = torch.exp(log_lengthscale)
+        sigma_n = torch.exp(log_sigma_n)
+
+        # create an index vector, index=[1 2 3...]
+        index = torch.linspace(1, m, m).view(1,m)
+
+        # See the autograd section for explanation of what happens here.
+        n = x_train.size(0)
+
+        # determine L automatically
+        tun = 4  # tuning parameter
+        L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
+
+        # compute the Phi matrix
+        phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(x_train+L)*0.5/L)  # basis functions
+
+        # diagonal of inverse lambda matrix
+        inv_lambda_diag = ( sigma_f.pow(-2) * torch.pow(2.0*math.pi*lengthscale.pow(2), -0.5)*
+                                  torch.exp( 0.5*lengthscale.pow(2)*pow(math.pi*index.t() / (2.0*L), 2) ) ).view(m)
+
+        Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
+
+        try:
+            c = torch.cholesky(Z, upper=True)
+        except: # not positive definite
+            add = torch.eig(Z)[0][:,0].min().detach()
+            iter=0
+            while add<1e-6: # keeping adding to the diagonal until fixed
+                Z = Z + max(1e-6,2*add.abs())*torch.eye(m)
+                add = torch.eig(Z)[0][:,0].min().detach()
+                iter+=1
+                print('Exception occured: %f' %(add))
+            c = torch.cholesky(Z, upper=True)
+            print('Exception occured: %d' %(iter))
+
+
+        v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)=Z\(Phi'*y)
+
+        n=y_train.size(0)
+        logQ = ( (n-m)*torch.log(sigma_n.pow(2))
+                + 2.0*torch.sum(torch.log( c.diag() ))
+                + torch.sum(torch.log(1/inv_lambda_diag)) )
+        yQiy = sigma_n.pow(-2)*( y_train.dot(y_train) - v.view(m).dot(y_train.view(1, n).mm(phi).view(m) ) )
+
+        nLL = 0.5*logQ + 0.5*yQiy  # neg log marg likelihood
+
+        return nLL
+
 
 
 # Deep version
@@ -485,9 +543,9 @@ class NegMarginalLogLikelihood_deep_st(torch.autograd.Function):
 
 
 # Deep version with numerical integration
-class NegMarginalLogLikelihood_deep_intMeas(nn.Module):
+class NegMarginalLogLikelihood_phi(nn.Module):
     def __init__(self,covtype="se",nu=2.5):
-        super(NegMarginalLogLikelihood_deep_intMeas, self).__init__()
+        super(NegMarginalLogLikelihood_phi, self).__init__()
         self.covtype = covtype
         self.nu = nu
 
@@ -671,9 +729,9 @@ class NegMarginalLogLikelihood_deep_intMeas_st(torch.autograd.Function):
 
 
 # Deep version with numerical integration and no backward implementation, just relying on autoback features
-class NegMarginalLogLikelihood_deep_intMeas_noBackward(nn.Module):
+class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
     def __init__(self):
-        super(NegMarginalLogLikelihood_deep_intMeas_noBackward, self).__init__()
+        super(NegMarginalLogLikelihood_phi_noBackward, self).__init__()
 
     def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, phi_vec, y_train, sq_lambda):
         # extract hyperparameters
@@ -714,6 +772,7 @@ class NegMarginalLogLikelihood_deep_intMeas_noBackward(nn.Module):
                 Z = Z + 1e-6*torch.eye(m)
                 add = torch.eig(Z)[0][:,0].min().detach()
                 iter+=1
+                print(iter)
             c = torch.cholesky(Z, upper=True)
             print('Exception occured: %d' %(iter))
 
@@ -730,3 +789,174 @@ class NegMarginalLogLikelihood_deep_intMeas_noBackward(nn.Module):
 
         return nLL
 
+
+###########################################################################################
+####################################### some other stuff (maybe put in another file)
+###########################################################################################
+class buildPhi():
+    def __init__(self,m,type='point',ni=400,int_method=3,tun=4):
+        super(buildPhi, self).__init__()
+
+        if int_method is 1:
+            # trapezoidal
+            sc=2*torch.ones(1,ni+1)
+            sc[0,0]=1; sc[0,ni]=1
+            fact = 1.0/2.0
+        elif int_method is 2:
+            # simpsons standard
+            ni = 2*round(ni/2)
+            sc=torch.ones(1,ni+1)
+            sc[0,ni-1]=4;
+            sc[0,1:ni-1] = torch.Tensor([4,2]).repeat(1,int(ni/2-1))
+            fact = 1.0/3.0
+        else:
+            # simpsons 3/8
+            ni = 3*round(ni/3)
+            sc=torch.ones(1,ni+1)
+            sc[0,ni-1]=3; sc[0,ni-2]=3
+            sc[0,1:ni-2] = torch.Tensor([3,3,2]).repeat(1,int(ni/3-1))
+            fact = 3.0/8.0
+
+        self.type=type
+        self.ni=ni
+        self.sc=sc
+        self.fact=fact
+        self.tun=tun
+        self.index = getIndex(m)
+
+    def getphi(self,model,m,n,mt,train_x):
+        phi = torch.ones(n,mt)
+        L = torch.empty(len(m))
+
+        for q in range(len(m)): # todo: specify lower bounds on L (maybe we could evaluate a set of points to estimate the latent output range)
+            L[q] = math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun)
+            sq_lambda = math.pi*self.index / (2.0*L)
+
+        if self.type is 'int':
+            for q in range(n):
+                a = train_x[q,0].item()
+                b = train_x[q,1].item()
+                h = (b-a)/self.ni
+
+                zz = model(torch.linspace(a,b,self.ni+1).view(self.ni+1,1))
+
+                intvals = torch.ones(self.ni+1,mt)
+                for w in range(L.size(0)):
+                    intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
+
+                phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
+            return (phi,sq_lambda,L)
+
+        if self.type is 'point':
+            zz = model(train_x)
+            for q in range(L.size(0)):
+                phi *= ( 1/math.sqrt(L[q]) ) * torch.sin((zz[:,q].view(n,1)+L[q])*sq_lambda[:,q].view(1,mt))
+            return (phi,sq_lambda,L)
+
+### print optimisation details
+def optiprint(i,training_iterations,lossitem,model,L):
+    diml=L.size(0)
+    if diml is 1:
+        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.5f - L: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_sigma_n.exp(), L[0] ))
+    elif diml is 2:
+        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l1: %.3f - l2: %.3f - sign: %.5f - L1: %.3f - L2: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_sigma_n.exp(), L[0], L[1] ))
+    elif diml is 3:
+        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l1: %.3f - l2: %.3f - l3: %.3f - sign: %.5f - L1: %.3f - L2: %.3f - L3: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_lengthscale[2].exp(), model.gp.log_sigma_n.exp(), L[0], L[1], L[3] ))
+
+
+### plot
+def makeplot(model,train_x,train_y,test_x,test_f,cov_f,truefunc,omega,diml,meastype='point'):
+    with torch.no_grad():
+        fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
+
+        if meastype is 'point':
+            # Plot training data as red stars
+            ax.plot(train_x.numpy(), train_y.numpy(), 'r*')
+
+        # Plot true function as solid black
+        ax.plot(test_x.numpy(), truefunc(omega,test_x).numpy(), 'k')
+
+        # plot latent outputs
+        train_m = model(test_x)
+        for w in range(diml):
+            ax.plot(test_x.numpy(), train_m[:,w].numpy(), 'g')
+
+        # plot 95% credibility region
+        upper = torch.squeeze(test_f, 1) + 2*cov_f.pow(0.5)
+        lower = torch.squeeze(test_f, 1) - 2*cov_f.pow(0.5)
+        ax.fill_between(torch.squeeze(test_x,1).numpy(), lower.numpy(), upper.numpy(), alpha=0.5)
+
+        # plot predictions
+        ax.plot(test_x.numpy(), test_f.detach().numpy(), 'b')
+
+        #ax.set_ylim([-2, 2])
+        # ax.legend(['Observed Data', 'True', 'Predicted'])
+        plt.show()
+
+### function that returns index vector
+def getIndex(m):
+    mt= np.prod(m) # total nr of basis functions
+    diml = len(m) # dimension of latent output
+
+    # create an index vector to store basis function permutations
+    index=torch.empty(mt,diml)
+
+    mmlist=[]
+    for q in range(diml):
+        mmlist.append(np.linspace(1, m[q], m[q]))
+
+    # hard coded, but more than sufficient...
+    if diml is 1:
+        perm = list(it.product(mmlist[0]))
+    elif diml is 2:
+        perm = list(it.product(mmlist[0],mmlist[1]))
+    elif diml is 3:
+        perm = list(it.product(mmlist[0],mmlist[1],mmlist[2]))
+    elif diml is 4:
+        perm = list(it.product(mmlist[0],mmlist[1],mmlist[2],mmlist[3]))
+    elif diml is 5:
+        perm = list(it.product(mmlist[0],mmlist[1],mmlist[2],mmlist[3],mmlist[4]))
+
+    for q in range(mt):
+        index[q,:] = torch.from_numpy(np.asarray(list(it.chain.from_iterable(perm[q:q+1]))))
+
+    return index
+
+
+### test functions
+def cos(omega,points):
+    return torch.cos(torch.squeeze(points, 1) * omega)
+
+def cos_int(omega,points_lims):
+    return torch.sin(omega*points_lims[:,1])/omega - torch.sin(omega*points_lims[:,0])/omega
+
+def step(omega,points):
+    out=points.clone()
+    out[points<0.5]=-1
+    out[points>0.5]=1
+    return out.view(-1)
+
+def step_int(omega,points_lims):
+    out=points_lims.clone()-0.5
+    out1=out[:,0].clone()
+    out1[out1<0]=-out1[out[:,0]<0]
+    out2=out[:,1].clone()
+    out2[out[:,1]<0]=-out2[out[:,1]<0]
+    return out2-out1
+
+def stepsin(omega,points):
+    step=0.5
+    y = torch.sin(torch.squeeze(points,1) * omega)
+    y[torch.squeeze(points, 1) >= step] += -1.0
+    y[torch.squeeze(points, 1) < step] += +1.0
+    return y
+
+def stepsin_int(omega,points_lims):
+    step=0.5
+    a0 = torch.clamp(points_lims[:,0], max=step)
+    a1 = torch.clamp(points_lims[:, 1], max=step)
+    a2 = torch.clamp(points_lims[:,0], min=step)
+    a3 = torch.clamp(points_lims[:, 1], min=step)
+    p1 = -torch.cos(omega*a1)/omega+torch.cos(omega*a0)/omega+1.0*(a1-a0)
+    p2 = -torch.cos(omega * a3) / omega + torch.cos(omega * a2) / omega - 1.0 * (a3 - a2)
+    return p1+p2
