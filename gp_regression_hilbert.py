@@ -5,6 +5,7 @@ import time
 import numpy as np
 import itertools as it
 from matplotlib import pyplot as plt
+from matplotlib import cm
 
 class GP_1D(nn.Module):
     def __init__(self, sigma_f, lengthscale, sigma_n, covtype="se", nu=2.5):
@@ -733,7 +734,7 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
     def __init__(self):
         super(NegMarginalLogLikelihood_phi_noBackward, self).__init__()
 
-    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, phi_vec, y_train, sq_lambda):
+    def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, phi, y_train, sq_lambda):
         # extract hyperparameters
         sigma_f = torch.exp(log_sigma_f)
         lengthscale = torch.exp(log_lengthscale)
@@ -747,9 +748,6 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 
         # input dimension
         dim = sq_lambda.size(1)
-
-        # reform phi
-        phi = phi_vec.view(n,m)
 
         # diagonal of inverse lambda matrix
         lprod=torch.ones(1)
@@ -796,43 +794,43 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 class buildPhi():
     def __init__(self,m,type='point',ni=400,int_method=3,tun=4):
         super(buildPhi, self).__init__()
-
-        if int_method is 1:
-            # trapezoidal
-            sc=2*torch.ones(1,ni+1)
-            sc[0,0]=1; sc[0,ni]=1
-            fact = 1.0/2.0
-        elif int_method is 2:
-            # simpsons standard
-            ni = 2*round(ni/2)
-            sc=torch.ones(1,ni+1)
-            sc[0,ni-1]=4;
-            sc[0,1:ni-1] = torch.Tensor([4,2]).repeat(1,int(ni/2-1))
-            fact = 1.0/3.0
-        else:
-            # simpsons 3/8
-            ni = 3*round(ni/3)
-            sc=torch.ones(1,ni+1)
-            sc[0,ni-1]=3; sc[0,ni-2]=3
-            sc[0,1:ni-2] = torch.Tensor([3,3,2]).repeat(1,int(ni/3-1))
-            fact = 3.0/8.0
-
         self.type=type
-        self.ni=ni
-        self.sc=sc
-        self.fact=fact
         self.tun=tun
         self.index = getIndex(m)
+        if self.type=='int':
+            if int_method is 1:
+                # trapezoidal
+                sc=2*torch.ones(1,ni+1)
+                sc[0,0]=1; sc[0,ni]=1
+                fact = 1.0/2.0
+            elif int_method is 2:
+                # simpsons standard
+                ni = 2*round(ni/2)
+                sc=torch.ones(1,ni+1)
+                sc[0,ni-1]=4;
+                sc[0,1:ni-1] = torch.Tensor([4,2]).repeat(1,int(ni/2-1))
+                fact = 1.0/3.0
+            else:
+                # simpsons 3/8
+                ni = 3*round(ni/3)
+                sc=torch.ones(1,ni+1)
+                sc[0,ni-1]=3; sc[0,ni-2]=3
+                sc[0,1:ni-2] = torch.Tensor([3,3,2]).repeat(1,int(ni/3-1))
+                fact = 3.0/8.0
+            self.ni=ni
+            self.sc=sc
+            self.fact=fact
 
     def getphi(self,model,m,n,mt,train_x):
         phi = torch.ones(n,mt)
-        L = torch.empty(len(m))
+        diml = len(m)
+        L = torch.empty(diml)
 
-        for q in range(len(m)): # todo: specify lower bounds on L (maybe we could evaluate a set of points to estimate the latent output range)
+        for q in range(diml): # todo: specify lower bounds on L (maybe we could evaluate a set of points to estimate the latent output range)
             L[q] = math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun)
             sq_lambda = math.pi*self.index / (2.0*L)
 
-        if self.type is 'int':
+        if self.type=='int': # todo: generalise to 2D using x0 and normal vector
             for q in range(n):
                 a = train_x[q,0].item()
                 b = train_x[q,1].item()
@@ -841,15 +839,15 @@ class buildPhi():
                 zz = model(torch.linspace(a,b,self.ni+1).view(self.ni+1,1))
 
                 intvals = torch.ones(self.ni+1,mt)
-                for w in range(L.size(0)):
+                for w in range(diml):
                     intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
 
                 phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
             return (phi,sq_lambda,L)
 
-        if self.type is 'point':
+        if self.type=='point':
             zz = model(train_x)
-            for q in range(L.size(0)):
+            for q in range(diml):
                 phi *= ( 1/math.sqrt(L[q]) ) * torch.sin((zz[:,q].view(n,1)+L[q])*sq_lambda[:,q].view(1,mt))
             return (phi,sq_lambda,L)
 
@@ -864,17 +862,19 @@ def optiprint(i,training_iterations,lossitem,model,L):
         print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l1: %.3f - l2: %.3f - l3: %.3f - sign: %.5f - L1: %.3f - L2: %.3f - L3: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_lengthscale[2].exp(), model.gp.log_sigma_n.exp(), L[0], L[1], L[3] ))
 
 
-### plot
-def makeplot(model,train_x,train_y,test_x,test_f,cov_f,truefunc,omega,diml,meastype='point'):
+####### plot
+### 1D
+def makeplot(model,train_x,train_y,test_x,test_f,cov_f,truefunc,diml,meastype='point'):
     with torch.no_grad():
         fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
 
-        if meastype is 'point':
+
+        if meastype=='point':
             # Plot training data as red stars
             ax.plot(train_x.numpy(), train_y.numpy(), 'r*')
 
         # Plot true function as solid black
-        ax.plot(test_x.numpy(), truefunc(omega,test_x).numpy(), 'k')
+        ax.plot(test_x.numpy(), truefunc(test_x).numpy(), 'k')
 
         # plot latent outputs
         train_m = model(test_x)
@@ -891,6 +891,41 @@ def makeplot(model,train_x,train_y,test_x,test_f,cov_f,truefunc,omega,diml,meast
 
         #ax.set_ylim([-2, 2])
         # ax.legend(['Observed Data', 'True', 'Predicted'])
+        plt.show()
+
+## 2D
+def makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=0,vmax=1):
+    with torch.no_grad():
+        fplot, ax = plt.subplots(2, 3, figsize=(27,9))
+
+        ## true function & meas
+        Z = np.reshape(truefunc(test_x).numpy(),(ntx,nty))
+        pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
+        pc.set_clim(vmin,vmax)
+        ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
+        #fplot.colorbar(pc1, shrink=0.5, aspect=5)
+
+        ## prediction
+        Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+        pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
+        pc.set_clim(vmin,vmax)
+        #fplot.colorbar(pc2, shrink=0.5, aspect=5)
+
+        ## prediction
+        Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
+        pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
+        pc.set_clim(vmin,vmax)
+
+        # plot latent outputs
+        train_m = model(test_x)
+        for w in range(diml):
+            Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+            pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
+            pc.set_clim(vmin,vmax)
+
+        ## shared colorbar
+        fplot.colorbar(pc, ax=ax.ravel().tolist())
+
         plt.show()
 
 ### function that returns index vector
@@ -923,20 +958,23 @@ def getIndex(m):
     return index
 
 
-### test functions
-def cos(omega,points):
+###### test functions
+### 1D
+def cos(points,omega=4*math.pi):
+    omega=omega
     return torch.cos(torch.squeeze(points, 1) * omega)
 
-def cos_int(omega,points_lims):
+def cos_int(points_lims,omega=4*math.pi):
+    omega=omega
     return torch.sin(omega*points_lims[:,1])/omega - torch.sin(omega*points_lims[:,0])/omega
 
-def step(omega,points):
+def step(points):
     out=points.clone()
     out[points<0.5]=-1
     out[points>0.5]=1
     return out.view(-1)
 
-def step_int(omega,points_lims):
+def step_int(points_lims):
     out=points_lims.clone()-0.5
     out1=out[:,0].clone()
     out1[out1<0]=-out1[out[:,0]<0]
@@ -944,15 +982,17 @@ def step_int(omega,points_lims):
     out2[out[:,1]<0]=-out2[out[:,1]<0]
     return out2-out1
 
-def stepsin(omega,points):
+def stepsin(points,omega=4*math.pi):
     step=0.5
+    omega=omega
     y = torch.sin(torch.squeeze(points,1) * omega)
     y[torch.squeeze(points, 1) >= step] += -1.0
     y[torch.squeeze(points, 1) < step] += +1.0
     return y
 
-def stepsin_int(omega,points_lims):
+def stepsin_int(points_lims,omega=4*math.pi):
     step=0.5
+    omega=omega
     a0 = torch.clamp(points_lims[:,0], max=step)
     a1 = torch.clamp(points_lims[:, 1], max=step)
     a2 = torch.clamp(points_lims[:,0], min=step)
@@ -960,3 +1000,13 @@ def stepsin_int(omega,points_lims):
     p1 = -torch.cos(omega*a1)/omega+torch.cos(omega*a0)/omega+1.0*(a1-a0)
     p2 = -torch.cos(omega * a3) / omega + torch.cos(omega * a2) / omega - 1.0 * (a3 - a2)
     return p1+p2
+
+### 2D
+def circlefunc(points):
+    y=torch.zeros(points.size(0))
+    y[torch.sum(points.pow(2),dim=1).view(y.size())>0.35]=1
+    y[torch.sum(points.pow(2),dim=1).view(y.size())>0.65]=0
+    indx1=torch.abs(points[:,0]).view(y.size())<0.15
+    indx2=torch.abs(points[:,1]).view(y.size())<0.15
+    y[indx1*indx2]=1
+    return y
