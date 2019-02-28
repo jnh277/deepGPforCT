@@ -20,8 +20,8 @@ if integral:
 if points:
     meastype='point'
 
-    noise_std=0.05
-    n = 3000
+    noise_std=0.01
+    n = 1500
 
     # input data
     train_x = -1+2*torch.rand(n,2)
@@ -46,12 +46,12 @@ if points:
     dom_points = torch.from_numpy(np.concatenate((np.reshape(Xd,(nd,1)),np.reshape(Yd,(nd,1))),axis=1)).float()
 
 # set appr params
-m = [30,30] # nr of basis functions in each latent direction: Change this to add latent outputs
+m = [40] # nr of basis functions in each latent direction: Change this to add latent outputs
 diml=len(m) # nr of latent outputs
 mt= np.prod(m) # total nr of basis functions
 
 # select model
-model = gpnets.gpnet2_2_3(sigma_n=noise_std)
+model = gpnets.gpnet2_1_3(sigma_n=noise_std)
 
 # loss function
 nLL = gprh.NegMarginalLogLikelihood_phi_noBackward()
@@ -65,12 +65,12 @@ buildPhi = gprh.buildPhi(m,type=meastype,ni=ni,int_method=int_method,tun=tun)
 # optimiser
 optimizer = torch.optim.Adam([
     {'params': model.parameters()},
-],lr=0.01)
+],lr=0.005)
 
 # scheduler for optimisation
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True, factor=0.99,min_lr=1e-6)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.99,min_lr=1e-6)
 
-training_iterations = 5000
+training_iterations = 100000
 for i in range(training_iterations):
     # Zero backprop gradients
     optimizer.zero_grad()
@@ -96,9 +96,6 @@ phi,_,_ = buildPhi.getphi(model,m,n,mt,train_x,dom_points)
 
 # now make predictions
 test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
-
-# torch.save((model,train_x,train_y,test_x,test_f,cov_f,truefunc,omega,diml,meastype),'mymodel')
-# model,train_x,train_y,test_x,test_f,cov_f,truefunc,omega,diml,meastype = torch.load('mymodel')
 
 # plot
 gprh.makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=-2,vmax=2)
