@@ -51,7 +51,7 @@ diml=len(m) # nr of latent outputs
 mt= np.prod(m) # total nr of basis functions
 
 # select model
-model = gpnets.gpnet2_2_2(sigma_n=noise_std)
+model = gpnets.gpnet2_2_3(sigma_n=noise_std)
 
 # loss function
 nLL = gprh.NegMarginalLogLikelihood_phi_noBackward()
@@ -101,4 +101,9 @@ test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test
 # model,train_x,train_y,test_x,test_f,cov_f,truefunc,omega,diml,meastype = torch.load('mymodel')
 
 # plot
-gprh.makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=-1,vmax=1)
+gprh.makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=-2,vmax=2)
+
+# L2 norm
+ground_truth = truefunc(test_x)
+error = torch.sum( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+print('L2 error norm: %.10f' %(error.item()))

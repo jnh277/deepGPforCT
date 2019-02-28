@@ -386,7 +386,7 @@ class gpnet2_2_1(torch.nn.Module):
 class gpnet2_2_2(torch.nn.Module):
     def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
         """
-        Description: different nets
+        Description: different nets: one  with sigmoid output
         """
         super(gpnet2_2_2, self).__init__()
         self.linear1 = torch.nn.Linear(2, 30)
@@ -462,7 +462,7 @@ class gpnet2_2_2(torch.nn.Module):
 class gpnet2_2_3(torch.nn.Module):
     def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
         """
-        Description: two outputs of same net
+        Description: two outputs of same net, with sigmoid output
         """
         super(gpnet2_2_3, self).__init__()
         self.linear1 = torch.nn.Linear(2, 30)
