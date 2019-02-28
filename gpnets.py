@@ -195,7 +195,7 @@ class gpnet2_1_1(torch.nn.Module):
 class gpnet2_1_2(torch.nn.Module):
     def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
         """
-        Description:
+        Description: smaller than above
         """
         super(gpnet2_1_2, self).__init__()
         self.linear1 = torch.nn.Linear(2, 20)

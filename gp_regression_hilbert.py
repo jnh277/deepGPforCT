@@ -821,13 +821,15 @@ class buildPhi():
             self.sc=sc
             self.fact=fact
 
-    def getphi(self,model,m,n,mt,train_x):
+    def getphi(self,model,m,n,mt,train_x,dom_points):
         phi = torch.ones(n,mt)
         diml = len(m)
         L = torch.empty(diml)
 
+        mtest=model(dom_points).abs()
         for q in range(diml): # todo: specify lower bounds on L (maybe we could evaluate a set of points to estimate the latent output range)
-            L[q] = math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun)
+            # todo: perhaps model(test_x).max() is overkill?
+            L[q] = max(1.2*mtest[:,q].max(), math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun) )
             sq_lambda = math.pi*self.index / (2.0*L)
 
         if self.type=='int': # todo: generalise to 2D using x0 and normal vector
@@ -894,7 +896,7 @@ def makeplot(model,train_x,train_y,test_x,test_f,cov_f,truefunc,diml,meastype='p
         plt.show()
 
 ## 2D
-def makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=0,vmax=1):
+def makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=-1,vmax=1):
     with torch.no_grad():
         fplot, ax = plt.subplots(2, 3, figsize=(27,9))
 
@@ -1003,9 +1005,9 @@ def stepsin_int(points_lims,omega=4*math.pi):
 
 ### 2D
 def circlefunc(points):
-    y=torch.zeros(points.size(0))
+    y=-torch.ones(points.size(0))
     y[torch.sum(points.pow(2),dim=1).view(y.size())>0.35]=1
-    y[torch.sum(points.pow(2),dim=1).view(y.size())>0.65]=0
+    y[torch.sum(points.pow(2),dim=1).view(y.size())>0.65]=-1
     indx1=torch.abs(points[:,0]).view(y.size())<0.15
     indx2=torch.abs(points[:,1]).view(y.size())<0.15
     y[indx1*indx2]=1
