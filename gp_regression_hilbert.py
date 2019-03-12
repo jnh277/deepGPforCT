@@ -766,13 +766,12 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
         except: # not positive definite
             add = torch.eig(Z)[0][:,0].min().detach()
             iter=0
-            while add<1e-6: # keeping adding to the diagonal until fixed
-                Z = Z + 1e-6*torch.eye(m)
+            while add<1e-6: # keeping adding to the diagonal until fixed # todo: improve this tweak...
+                Z = Z + 2*add.abs()*torch.eye(m)
                 add = torch.eig(Z)[0][:,0].min().detach()
                 iter+=1
-                print(iter)
+                print('Not positive definite!!: %d' %(iter))
             c = torch.cholesky(Z, upper=True)
-            print('Exception occured: %d' %(iter))
 
 
         v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)=Z\(Phi'*y)
@@ -792,7 +791,7 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 ####################################### some other stuff (maybe put in another file)
 ###########################################################################################
 class buildPhi():
-    def __init__(self,m,type='point',ni=400,int_method=3,tun=4):
+    def __init__(self,m,type='point',ni=400,int_method=3,tun=4,x0=None,unitvecs=None,Rlim=None):
         super(buildPhi, self).__init__()
         self.type=type
         self.tun=tun
@@ -820,25 +819,29 @@ class buildPhi():
             self.ni=ni
             self.sc=sc
             self.fact=fact
+            self.x0=x0
+            self.unitvecs=unitvecs
+            self.Rlim=Rlim
 
-    def getphi(self,model,m,n,mt,train_x,dom_points):
+    def getphi(self,model,m,n,mt,dom_points,train_x=None):
         phi = torch.ones(n,mt)
         diml = len(m)
         L = torch.empty(diml)
 
         mtest=model(dom_points).abs()
-        for q in range(diml): # todo: specify lower bounds on L (maybe we could evaluate a set of points to estimate the latent output range)
-            # todo: perhaps model(test_x).max() is overkill?
+        for q in range(diml):
             L[q] = max(1.2*mtest[:,q].max(), math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun) )
             sq_lambda = math.pi*self.index / (2.0*L)
 
-        if self.type=='int': # todo: generalise to 2D using x0 and normal vector
+        if self.type=='int':
             for q in range(n):
-                a = train_x[q,0].item()
-                b = train_x[q,1].item()
-                h = (b-a)/self.ni
+                h = 2*self.Rlim/self.ni
 
-                zz = model(torch.linspace(a,b,self.ni+1).view(self.ni+1,1))
+                start = self.x0[q,:] - self.Rlim*self.unitvecs[q,:]
+
+                svec = torch.linspace(-self.Rlim,self.Rlim,self.ni+1).view(self.ni+1,1)
+
+                zz = model( start.repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
 
                 intvals = torch.ones(self.ni+1,mt)
                 for w in range(diml):
@@ -896,39 +899,66 @@ def makeplot(model,train_x,train_y,test_x,test_f,cov_f,truefunc,diml,meastype='p
         plt.show()
 
 ## 2D
-def makeplot2D(model,X,Y,ntx,nty,train_x,test_x,test_f,cov_f,truefunc,diml,vmin=-1,vmax=1):
+def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=None,train_x=None,type='point',vmin=-1,vmax=1):
     with torch.no_grad():
-        fplot, ax = plt.subplots(2, 3, figsize=(27,9))
+        if type=='point':
+            fplot, ax = plt.subplots(2, 3, figsize=(27,9))
 
-        ## true function & meas
-        Z = np.reshape(truefunc(test_x).numpy(),(ntx,nty))
-        pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
-        pc.set_clim(vmin,vmax)
-        ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
-        #fplot.colorbar(pc1, shrink=0.5, aspect=5)
+            ## true function & meas
+            Z = np.reshape(truefunc(test_x).numpy(),(ntx,nty))
+            pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
+            pc.set_clim(vmin,vmax)
+            ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
 
-        ## prediction
-        Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
-        pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
-        pc.set_clim(vmin,vmax)
-        #fplot.colorbar(pc2, shrink=0.5, aspect=5)
-
-        ## prediction
-        Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
-        pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
-        pc.set_clim(vmin,vmax)
-
-        # plot latent outputs
-        train_m = model(test_x)
-        for w in range(diml):
-            Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
-            pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
+            ## prediction
+            Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+            pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
 
-        ## shared colorbar
-        fplot.colorbar(pc, ax=ax.ravel().tolist())
+            ## covariance
+            Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
+            pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
+            pc.set_clim(vmin,vmax)
 
-        plt.show()
+            # plot latent outputs
+            train_m = model(test_x)
+            for w in range(diml):
+                Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+                pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
+                pc.set_clim(vmin,vmax)
+
+            ## shared colorbar
+            fplot.colorbar(pc, ax=ax.ravel().tolist())
+
+            plt.show()
+        else:
+            fplot, ax = plt.subplots(2, 3, figsize=(27,9))
+
+            ## true function & meas
+            pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
+            pc.set_clim(vmin,vmax)
+
+            ## prediction
+            Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+            pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
+            pc.set_clim(vmin,vmax)
+
+            ## covariance
+            Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
+            pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
+            pc.set_clim(vmin,vmax)
+
+            # plot latent outputs
+            train_m = model(test_x)
+            for w in range(diml):
+                Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+                pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
+                pc.set_clim(vmin,vmax)
+
+            ## shared colorbar
+            fplot.colorbar(pc, ax=ax.ravel().tolist())
+
+            plt.show()
 
 ### function that returns index vector
 def getIndex(m):
