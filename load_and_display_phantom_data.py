@@ -15,7 +15,7 @@ def getdata(dataname='circle_square',makeplot=False):
         # data = sio.loadmat('/Users/johannes/Dropbox/deepGPforCT/matlab/phantom_data.mat')
         # data = sio.loadmat('/Users/johannes/Dropbox/deepGPforCT/matlab/circle_data.mat')
         # data = sio.loadmat('/Users/johannes/Dropbox/deepGPforCT/matlab/circle_square_data.mat')
-        data=sio.loadmat('/home/carl/Dropbox/deepGPforCT/matlab/'+dataname+'_data.mat')
+        data=sio.loadmat('/Users/johannes/Dropbox/deepGPforCT/matlab/'+dataname+'_data.mat')
 
     im = data['im']                     # original image
     X = data['X']                       # X values of the original image
