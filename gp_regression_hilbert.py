@@ -761,18 +761,22 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
 
-        try:
-            c = torch.cholesky(Z, upper=True)
-        except: # not positive definite
-            add = torch.eig(Z)[0][:,0].min().detach()
-            iter=0
-            while add<1e-6: # keeping adding to the diagonal until fixed # todo: improve this tweak...
-                Z = Z + 2*add.abs()*torch.eye(m)
-                add = torch.eig(Z)[0][:,0].min().detach()
-                iter+=1
-                print('Not positive definite!!: %d' %(iter))
-            c = torch.cholesky(Z, upper=True)
+        # do numerical tweaks to ensure pos. def., qr hasn't got derivatives implemented...
+        Z = 0.5*(Z+Z.t()) # enforce symmetry
+        add = torch.eig(Z)[0][:,0].min().detach()
+        Z = Z + 2.0*torch.min(add,torch.zeros(1)).abs()*torch.eye(m)
 
+        iter=1
+        while True: # loop until cholesky works
+            try:
+                c = torch.cholesky(Z, upper=True)
+                break
+            except: # not positive definite
+                add = torch.eig(Z)[0][:,0].min().detach()
+                Z = Z + torch.max(2*add.abs(),1e-6*iter*torch.ones(1))*torch.eye(m)
+                print('Not positive definite!!: %d' %(iter))
+                iter+=1
+                continue
 
         v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)=Z\(Phi'*y)
 
@@ -834,6 +838,7 @@ class buildPhi():
             sq_lambda = math.pi*self.index / (2.0*L)
 
         if self.type=='int':
+            # st = time.time()
             for q in range(n):
                 h = 2*self.Rlim/self.ni
 
@@ -846,6 +851,7 @@ class buildPhi():
                     intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
 
                 phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
+            # print(time.time()-st)
             return (phi,sq_lambda,L)
 
         if self.type=='point':
