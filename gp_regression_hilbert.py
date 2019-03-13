@@ -837,11 +837,9 @@ class buildPhi():
             for q in range(n):
                 h = 2*self.Rlim/self.ni
 
-                start = self.x0[q,:] - self.Rlim*self.unitvecs[q,:]
-
                 svec = torch.linspace(-self.Rlim,self.Rlim,self.ni+1).view(self.ni+1,1)
 
-                zz = model( start.repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
+                zz = model( self.x0[q,:].repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
 
                 intvals = torch.ones(self.ni+1,mt)
                 for w in range(diml):

@@ -23,7 +23,7 @@ if integral:
     unitvecs = torch.from_numpy(unitvecs).float()
 
     # add noise
-    noise_std = 0.01
+    noise_std = 0.001
     train_y = train_y + torch.randn(n) * noise_std
 
     # test points
@@ -77,7 +77,7 @@ diml=len(m) # nr of latent outputs
 mt= np.prod(m) # total nr of basis functions
 
 # select model
-model = gpnets.gpnet2_1_3(sigma_n=noise_std)
+model = gpnets.gpnet2_1_4(sigma_n=noise_std)
 
 # loss function
 nLL = gprh.NegMarginalLogLikelihood_phi_noBackward()
