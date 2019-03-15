@@ -1,11 +1,8 @@
 import torch
-import math
 import gp_regression_hilbert as gprh
 import gpnets
-import integration as intgr
 import numpy as np
-import time
-import load_and_display_phantom_data as lp
+import radon_data as rd
 
 # use integral or point measurements
 integral=True
@@ -14,17 +11,19 @@ points=not(integral)
 if integral:
     meastype='int'
 
+    # noise level
+    noise_std = 0.005
+
     # import data
-    train_y, n, x0, unitvecs, Rlim, X, Y, Z = lp.getdata('circle_square',makeplot=False)
+    dataname='circle_square'
+    print('Getting data...')
+    train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp = rd.getdata(dataname=dataname,nmeas_proj=100,nproj=20,nt=None,sigma_n=noise_std,reconstruct_fbp=True)
+    print('Data ready!')
 
     # convert
     train_y = torch.from_numpy(train_y).float()
     x0 = torch.from_numpy(x0).float()
     unitvecs = torch.from_numpy(unitvecs).float()
-
-    # add noise
-    noise_std = 0.001
-    train_y = train_y + torch.randn(n) * noise_std
 
     # test points
     ntx=np.size(X,1)
@@ -72,12 +71,13 @@ if points:
     dom_points = torch.from_numpy(np.concatenate((np.reshape(Xd,(nd,1)),np.reshape(Yd,(nd,1))),axis=1)).float()
 
 # set appr params
-m = [40] # nr of basis functions in each latent direction: Change this to add latent outputs
+m = [50] # nr of basis functions in each latent direction: Change this to add latent outputs
 diml=len(m) # nr of latent outputs
 mt= np.prod(m) # total nr of basis functions
 
 # select model
-model = gpnets.gpnet2_1_4(sigma_n=noise_std)
+model = gpnets.gpnet2_1_4()
+# model=torch.load("mymodel")
 
 # loss function
 nLL = gprh.NegMarginalLogLikelihood_phi_noBackward()
@@ -85,8 +85,8 @@ nLL = gprh.NegMarginalLogLikelihood_phi_noBackward()
 # buildPhi object
 tun=4 # scaling parameter for L (nr of "std":s)
 if integral:
-    int_method=3 # 1)trapezoidal, 2)simpsons standard, 3)simpsons 3/8
-    ni=400 # nr of intervals in numerical integration
+    int_method=2 # 1)trapezoidal, 2)simpsons standard, 3)simpsons 3/8
+    ni=200 # nr of intervals in numerical integration
     buildPhi = gprh.buildPhi(m,type=meastype,ni=ni,int_method=int_method,tun=tun,x0=x0,unitvecs=unitvecs,Rlim=Rlim)
 else:
     buildPhi = gprh.buildPhi(m,type=meastype,tun=tun)
@@ -94,12 +94,14 @@ else:
 # optimiser
 optimizer = torch.optim.Adam([
     {'params': model.parameters()},
-],lr=0.01)
+],lr=0.05)
 
 # scheduler for optimisation
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5, verbose=True, factor=0.99,min_lr=1e-6)
 
-training_iterations = 4
+saveFreq=1000 # how often do you wanna save the model?
+
+training_iterations = 10000
 for i in range(training_iterations):
     # Zero backprop gradients
     optimizer.zero_grad()
@@ -123,6 +125,10 @@ for i in range(training_iterations):
     # print
     gprh.optiprint(i,training_iterations,loss.item(),model,L)
 
+    if integral:
+        if (i+1)%saveFreq==0:
+            torch.save(model,'mymodel_'+dataname+'_'+str(i+1))
+
 # update phi
 if integral:
     phi = buildPhi.getphi(model,m,n,mt,dom_points)[0]
@@ -143,5 +149,8 @@ if integral:
     ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
 else:
     ground_truth = truefunc(test_x)
-error = torch.sum( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
 print('L2 error norm: %.10f' %(error.item()))
+
+# final save
+torch.save((model,n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp, test_f,cov_f, test_x),'mymodel_'+dataname+'_'+str(training_iterations)+'_all')

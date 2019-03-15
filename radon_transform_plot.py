@@ -58,7 +58,6 @@ provided by the projections), and we follow that rule here. Below is the
 original image and its Radon transform, often known as its *sinogram*:
 """
 
-
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -66,7 +65,12 @@ from skimage.io import imread
 from skimage import data_dir
 from skimage.transform import radon, resize
 
-nr=512
+nproj = 20
+nmeas_proj = 100 # measurements per projection
+
+image_res = 3e3 # resolution of data generating image
+nextract = int( np.ceil( image_res / (nmeas_proj-1) ) )
+nr = (nmeas_proj-1)* nextract + 1
 
 image = imread(data_dir + "/phantom.png", as_gray=True)
 image = resize(image, (nr,nr), mode='reflect')
@@ -76,8 +80,10 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4.5))
 ax1.set_title("Original")
 ax1.imshow(image, cmap=plt.cm.Greys_r)
 
-theta = np.linspace(0., 180., max(image.shape), endpoint=False)
-sinogram = radon(image, theta=theta, circle=True)
+theta = np.linspace(0., 180., nproj, endpoint=False)
+
+sinogram = radon(image, theta=theta, circle=True) / nr # normalise with the  image size
+
 ax2.set_title("Radon transform\n(Sinogram)")
 ax2.set_xlabel("Projection angle (deg)")
 ax2.set_ylabel("Projection position (pixels)")
@@ -104,8 +110,8 @@ plt.show()
 
 from skimage.transform import iradon
 
-reconstruction_fbp = iradon(sinogram, theta=theta, circle=True)
-error = reconstruction_fbp - image
+reconstruction_fbp = iradon(sinogram[0::nextract], theta=theta, circle=True) * nmeas_proj # scale with number of meas/proj
+error = reconstruction_fbp - image[0::nextract,0::nextract]
 print('FBP rms reconstruction error: %.3g' % np.sqrt(np.mean(error**2)))
 
 imkwargs = dict(vmin=-0.2, vmax=0.2)
@@ -114,7 +120,7 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4.5),
 ax1.set_title("Reconstruction\nFiltered back projection")
 ax1.imshow(reconstruction_fbp, cmap=plt.cm.Greys_r)
 ax2.set_title("Reconstruction error\nFiltered back projection")
-ax2.imshow(reconstruction_fbp - image, cmap=plt.cm.Greys_r, **imkwargs)
+ax2.imshow(error, cmap=plt.cm.Greys_r, **imkwargs)
 plt.show()
 
 ######################################################################

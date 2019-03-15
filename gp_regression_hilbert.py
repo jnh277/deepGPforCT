@@ -827,11 +827,13 @@ class buildPhi():
             self.unitvecs=unitvecs
             self.Rlim=Rlim
 
-    def getphi(self,model,m,n,mt,dom_points,train_x=None):
+    def getphi(self,model,m,n,mt,dom_points=None,train_x=None):
         phi = torch.ones(n,mt)
         diml = len(m)
         L = torch.empty(diml)
 
+        if dom_points is None: # point meas
+            dom_points=train_x
         mtest=model(dom_points).abs()
         for q in range(diml):
             L[q] = max(1.2*mtest[:,q].max(), math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun) )
@@ -839,25 +841,39 @@ class buildPhi():
 
         if self.type=='int':
             # st = time.time()
-            for q in range(n):
-                h = 2*self.Rlim/self.ni
+            if self.x0 is None: # 1D
+                for q in range(n):
+                    a = train_x[q,0]
+                    b = train_x[q,1]
+                    h = (b-a)/self.ni
 
-                svec = torch.linspace(-self.Rlim,self.Rlim,self.ni+1).view(self.ni+1,1)
+                    zz = model( torch.linspace(a,b,self.ni+1).view(self.ni+1,1) )
 
-                zz = model( self.x0[q,:].repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
+                    intvals = torch.ones(self.ni+1,mt)
+                    for w in range(diml):
+                        intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
 
-                intvals = torch.ones(self.ni+1,mt)
-                for w in range(diml):
-                    intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
+                    phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
+            else:
+                for q in range(n):
+                    h = 2*self.Rlim/self.ni
 
-                phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
+                    svec = torch.linspace(-self.Rlim,self.Rlim,self.ni+1).view(self.ni+1,1)
+
+                    zz = model( self.x0[q,:].repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
+
+                    intvals = torch.ones(self.ni+1,mt)
+                    for w in range(diml):
+                        intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
+
+                    phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
             # print(time.time()-st)
             return (phi,sq_lambda,L)
 
         if self.type=='point':
             zz = model(train_x)
             for q in range(diml):
-                phi *= ( 1/math.sqrt(L[q]) ) * torch.sin((zz[:,q].view(n,1)+L[q])*sq_lambda[:,q].view(1,mt))
+                phi *= math.pow(L[q],-0.5) * torch.sin((zz[:,q].view(n,1)+L[q])*sq_lambda[:,q].view(1,mt))
             return (phi,sq_lambda,L)
 
 ### print optimisation details
