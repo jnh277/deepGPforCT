@@ -5,24 +5,48 @@ import gp_regression_hilbert as gprh
 ##################################### 1D input #########################################################################
 ### nets of type 1-1-gp
 class gpnet1_1_1(torch.nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1.0, lengthscale=1.0, sigma_n=1.0):
+        """
+        Description: pure GP
+        """
+        super(gpnet1_1_1, self).__init__()
+
+        self.gp = gprh.GP_1D(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+
+    def forward(self, x_train, y_train=None, m=None, x_test=None):
+        if x_train is not None:
+            h = x_train.clone()
+
+        if x_test is not None:
+            h2 = x_test.clone()
+
+        else:
+            h2 = None
+        if y_train is not None:
+            out = self.gp(h, y_train, m, h2)
+        else:
+            out = h
+        return out
+
+class gpnet1_1_2(torch.nn.Module):
+    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1):
         """
         Description:
         """
-        super(gpnet1_1_1, self).__init__()
-        self.linear1 = torch.nn.Linear(1, 30)
+        super(gpnet1_1_2, self).__init__()
+        self.linear1 = torch.nn.Linear(1, 20)
         self.tanh1 = torch.nn.Tanh()
-        self.linear2 = torch.nn.Linear(30, 30)
+        self.linear2 = torch.nn.Linear(20, 20)
         self.tanh2 = torch.nn.Tanh()
-        self.linear3 = torch.nn.Linear(30, 6)
+        self.linear3 = torch.nn.Linear(20, 6)
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.sigm = torch.nn.Sigmoid()
         self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_1D(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n)
 
-    def forward(self, x_train=None, y_train=None, phi=None, sq_lambda=None, L=None, x_test=None):
+    def forward(self, x_train, y_train=None, m=None, x_test=None):
         if x_train is not None:
             h11 = x_train.clone()
             h11 = self.linear1(h11)
@@ -53,7 +77,7 @@ class gpnet1_1_1(torch.nn.Module):
         else:
             h2 = None
         if y_train is not None:
-            out = self.gp(y_train,phi,sq_lambda,L,h2)
+            out = self.gp(h, y_train, m, h2)
         else:
             out = h
         return out

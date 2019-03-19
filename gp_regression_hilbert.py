@@ -38,8 +38,8 @@ class GP_1D(nn.Module):
         n = x_train.size(0)
 
         # determine L automatically
-        tun = 3 # tuning parameter
-        L = max(1.2*x_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
+        tun = 4 # tuning parameter
+        L = max(1.2*x_train.abs().max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
 
         # compute phi
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(x_train+L)*0.5/L) # basis functions
@@ -168,7 +168,7 @@ class GP_new(nn.Module):
         self.log_sigma_n = nn.Parameter(torch.Tensor([sigma_n]).abs().log())
 
     # the predict forward function
-    def forward(self, y_train, phi, sq_lambda, L, m_test):  # todo: general L:s
+    def forward(self, y_train, phi, sq_lambda, L, m_test):
         # extract hyperparameters
         sigma_f = torch.exp(self.log_sigma_f)
         lengthscale = torch.exp(self.log_lengthscale)
@@ -182,7 +182,7 @@ class GP_new(nn.Module):
 
         # See the autograd section for explanation of what happens here.
         n = y_train.size(0)
-
+        print(lengthscale)
         lprod=torch.ones(1)
         omega_sum=torch.zeros(m,1)
         for q in range(diml):
@@ -363,7 +363,7 @@ class NegMarginalLogLikelihood_noBackward(nn.Module):
 
         # determine L automatically
         tun = 4  # tuning parameter
-        L = max(1.5*x_train.max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
+        L = max(1.2*x_train.abs().max(),math.pi*m*torch.sqrt(lengthscale.detach().pow(2))/(2.0*tun))
 
         # compute the Phi matrix
         phi = ( 1/math.sqrt(L) ) * torch.sin(math.pi*index*(x_train+L)*0.5/L)  # basis functions
@@ -374,19 +374,12 @@ class NegMarginalLogLikelihood_noBackward(nn.Module):
 
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
 
-        try:
-            c = torch.cholesky(Z, upper=True)
-        except: # not positive definite
-            add = torch.eig(Z)[0][:,0].min().detach()
-            iter=0
-            while add<1e-6: # keeping adding to the diagonal until fixed
-                Z = Z + max(1e-6,2*add.abs())*torch.eye(m)
-                add = torch.eig(Z)[0][:,0].min().detach()
-                iter+=1
-                print('Exception occured: %f' %(add))
-            c = torch.cholesky(Z, upper=True)
-            print('Exception occured: %d' %(iter))
+        if torch.isnan(Z).any().item()==1:
+            return torch.from_numpy(np.array([np.nan])).float()
+        if torch.isinf(Z).any().item()==1:
+            return torch.from_numpy(np.array([np.inf])).float()
 
+        Z,c = choleskZ(Z) # numerical tweaks might be necessary
 
         v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)=Z\(Phi'*y)
 
@@ -761,22 +754,12 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 
         Z = phi.t().mm(phi) + sigma_n.pow(2) * torch.diag( inv_lambda_diag )  # Z
 
-        # do numerical tweaks to ensure pos. def., qr hasn't got derivatives implemented...
-        Z = 0.5*(Z+Z.t()) # enforce symmetry
-        add = torch.eig(Z)[0][:,0].min().detach()
-        Z = Z + 2.0*torch.min(add,torch.zeros(1)).abs()*torch.eye(m)
+        if torch.isnan(Z).any().item()==1:
+            return torch.from_numpy(np.array([np.nan])).float()
+        if torch.isinf(Z).any().item()==1:
+            return torch.from_numpy(np.array([np.inf])).float()
 
-        iter=1
-        while True: # loop until cholesky works
-            try:
-                c = torch.cholesky(Z, upper=True)
-                break
-            except: # not positive definite
-                add = torch.eig(Z)[0][:,0].min().detach()
-                Z = Z + torch.max(2*add.abs(),1e-6*iter*torch.ones(1))*torch.eye(m)
-                print('Not positive definite!!: %d' %(iter))
-                iter+=1
-                continue
+        Z,c = choleskZ(Z) # numerical tweaks might be needed
 
         v, _ = torch.gesv( phi.t().mm(y_train.view(n, 1)), Z)  # X,LU = torch.gesv(B, A); AX=B => v=(Phi'*Phi+sign^2I)\(Phi'*y)=Z\(Phi'*y)
 
@@ -794,6 +777,23 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 ###########################################################################################
 ####################################### some other stuff (maybe put in another file)
 ###########################################################################################
+def choleskZ(Z):
+    # do numerical tweaks to ensure pos. def., qr hasn't got derivatives implemented...
+    Z = 0.5*(Z+Z.t()) # enforce symmetry
+    add = torch.eig(Z)[0][:,0].min().detach()
+    Z = Z + 2.0*torch.min(add,torch.zeros(1)).abs()*torch.eye(Z.size(0))
+    iteration=1.0
+    while True: # loop until cholesky works
+        try:
+            c = torch.cholesky(Z, upper=True)
+            break
+        except: # not positive definit
+            Z = Z + add.abs()*np.exp(np.log(iteration)*iteration)*torch.ones(1)*torch.eye(Z.size(0))
+            print('Not positive definite!!: %d' %(iteration))
+            iteration+=1
+            continue
+    return Z,c
+
 class buildPhi():
     def __init__(self,m,type='point',ni=400,int_method=3,tun=4,x0=None,unitvecs=None,Rlim=None):
         super(buildPhi, self).__init__()
