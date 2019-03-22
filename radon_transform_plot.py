@@ -65,6 +65,11 @@ from skimage.io import imread
 from skimage import data_dir
 from skimage.transform import radon, resize
 
+D = 1
+R = 0.5*D # radius
+
+sigma_n = 0.005 # noise
+
 nproj = 20
 nmeas_proj = 100 # measurements per projection
 
@@ -82,7 +87,10 @@ ax1.imshow(image, cmap=plt.cm.Greys_r)
 
 theta = np.linspace(0., 180., nproj, endpoint=False)
 
-sinogram = radon(image, theta=theta, circle=True) / nr # normalise with the  image size
+sinogram = radon(image, theta=theta, circle=True) / (nr/D) # normalise with the  image size
+
+# extract data
+train_y = sinogram[0::nextract,:] + sigma_n * np.random.randn(nmeas_proj,nproj)
 
 ax2.set_title("Radon transform\n(Sinogram)")
 ax2.set_xlabel("Projection angle (deg)")
@@ -110,7 +118,7 @@ plt.show()
 
 from skimage.transform import iradon
 
-reconstruction_fbp = iradon(sinogram[0::nextract], theta=theta, circle=True) * nmeas_proj # scale with number of meas/proj
+reconstruction_fbp = iradon(train_y, theta=theta, circle=True) * nmeas_proj # scale with number of meas/proj
 error = reconstruction_fbp - image[0::nextract,0::nextract]
 print('FBP rms reconstruction error: %.3g' % np.sqrt(np.mean(error**2)))
 

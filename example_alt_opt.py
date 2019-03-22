@@ -8,6 +8,7 @@ import gpnets
 import sys
 sys.path.append('./opti_functions/')
 from Adam_ls import Adam_ls
+from Adam_ls_alt import Adam_ls_alt
 from LBFGS import FullBatchLBFGS
 
 def truefunc(omega,points):
@@ -36,7 +37,7 @@ nLL = gprh.NegMarginalLogLikelihood_noBackward()  # this is the loss function
 
 ##### pick optimiser
 # optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=2, debug=True)  # full-batch L-BFGS optimizer
-optimiser = Adam_ls(model.parameters(), lr=1)  # Adam with line search
+optimiser = Adam_ls_alt(model.parameters(), lr=1, weight_decay=0.00)  # Adam with line search
 
 # closure: should return the loss
 def closure():
@@ -50,7 +51,7 @@ training_iterations = 100
 for i in range(training_iterations):
 
     options = {'line_search': True, 'closure': closure, 'max_ls': 5, 'ls_debug': False, 'inplace': False, 'interpolate': False,
-               'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.5, 'increase_lr_on_min_ls': 2}
+               'eta': 2, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 2}
 
     optimiser.zero_grad() # zero gradients
     loss.backward() # propagate derivatives

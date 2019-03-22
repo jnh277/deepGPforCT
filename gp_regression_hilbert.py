@@ -182,7 +182,7 @@ class GP_new(nn.Module):
 
         # See the autograd section for explanation of what happens here.
         n = y_train.size(0)
-        print(lengthscale)
+
         lprod=torch.ones(1)
         omega_sum=torch.zeros(m,1)
         for q in range(diml):
@@ -855,18 +855,49 @@ class buildPhi():
 
                     phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
             else:
-                for q in range(n):
-                    h = 2*self.Rlim/self.ni
+                if model.pureGP:
+                    x0_start = self.x0 - self.Rlim*self.unitvecs
+                    lambdaXin = sq_lambda[:,0]
+                    lambdaYin = sq_lambda[:,1]
+                    for q in range (n):
+                        x0_s = x0_start[q,0]
+                        y0_s = x0_start[q,1]
 
-                    svec = torch.linspace(-self.Rlim,self.Rlim,self.ni+1).view(self.ni+1,1)
+                        lambdaX = self.unitvecs[q,0]*lambdaXin
+                        lambdaY = self.unitvecs[q,1]*lambdaYin
 
-                    zz = model( self.x0[q,:].repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
+                        BX = (x0_s+L[0]) * lambdaXin
+                        BY = (y0_s+L[1]) * lambdaYin
 
-                    intvals = torch.ones(self.ni+1,mt)
-                    for w in range(diml):
-                        intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
+                        lambda_min = lambdaX - lambdaY
+                        b_min = BX - BY
+                        lambda_plus = lambdaX + lambdaY
+                        b_plus = BX + BY
 
-                    phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
+                        lambda_min_div = lambda_min
+                        lambda_plus_div = lambda_plus
+
+                        lambda_min_div[lambda_min.abs()<1e-14] = 1
+                        lambda_plus_div[lambda_plus.abs()<1e-14] = 1
+
+                        theInt = 0.5*( ( torch.sin(lambda_min*2*self.Rlim+b_min)-torch.sin(b_min) ) / lambda_min_div +
+                                        (  torch.sin(b_plus) - torch.sin(lambda_plus*2*self.Rlim+b_plus)   ) / lambda_plus_div )
+
+                        phi[q,:] = math.pow(L[0]*L[1],-0.5)*theInt.view(1,mt)
+
+                else:
+                    for q in range(n):
+                        h = 2*self.Rlim/self.ni
+
+                        svec = torch.linspace(-self.Rlim,self.Rlim,self.ni+1).view(self.ni+1,1)
+
+                        zz = model( self.x0[q,:].repeat(self.ni+1,1) + svec*self.unitvecs[q,:] )
+
+                        intvals = torch.ones(self.ni+1,mt)
+                        for w in range(diml):
+                            intvals*=math.pow(L[w],-0.5)*torch.sin((zz[:,w].view(self.ni+1,1)+L[w])*sq_lambda[:,w].view(1,mt))
+
+                        phi[q,:] = self.fact*h*torch.sum(intvals*self.sc.t() , dim=0)
             # print(time.time()-st)
             return (phi,sq_lambda,L)
 
@@ -877,14 +908,14 @@ class buildPhi():
             return (phi,sq_lambda,L)
 
 ### print optimisation details
-def optiprint(i,training_iterations,lossitem,model,L):
+def optiprint(i,training_iterations,lossitem,lr,ls_step,model,L):
     diml=L.size(0)
     if diml is 1:
-        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l: %.3f - sign: %.5f - L: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_sigma_n.exp(), L[0] ))
+        print('Iter %d/%d - Loss: %.3f - LR: %.5f - LS iters: %0.0f - sigf: %.3f - l: %.3f - sign: %.5f - L: %.3f' % (i + 1, training_iterations, lossitem, lr, ls_step, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_sigma_n.exp(), L[0] ))
     elif diml is 2:
-        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l1: %.3f - l2: %.3f - sign: %.5f - L1: %.3f - L2: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_sigma_n.exp(), L[0], L[1] ))
+        print('Iter %d/%d - Loss: %.3f - LR: %.5f - LS iters: %0.0f - sigf: %.3f - l1: %.3f - l2: %.3f - sign: %.5f - L1: %.3f - L2: %.3f' % (i + 1, training_iterations, lossitem, lr, ls_step, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_sigma_n.exp(), L[0], L[1] ))
     elif diml is 3:
-        print('Iter %d/%d - Loss: %.3f - sigf: %.3f - l1: %.3f - l2: %.3f - l3: %.3f - sign: %.5f - L1: %.3f - L2: %.3f - L3: %.3f' % (i + 1, training_iterations, lossitem, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_lengthscale[2].exp(), model.gp.log_sigma_n.exp(), L[0], L[1], L[3] ))
+        print('Iter %d/%d - Loss: %.3f - LR: %.5f - LS iters: %0.0f - sigf: %.3f - l1: %.3f - l2: %.3f - l3: %.3f - sign: %.5f - L1: %.3f - L2: %.3f - L3: %.3f' % (i + 1, training_iterations, lossitem, lr, ls_step, model.gp.log_sigma_f.exp(), model.gp.log_lengthscale[0].exp(), model.gp.log_lengthscale[1].exp(), model.gp.log_lengthscale[2].exp(), model.gp.log_sigma_n.exp(), L[0], L[1], L[3] ))
 
 
 ####### plot
@@ -980,6 +1011,59 @@ def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=N
 
             plt.show()
 
+def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.coolwarm):
+
+    (model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
+                    ntx, nty, test_x, dom_points, m, diml, mt,
+                    test_f, cov_f, noise_std, nLL, buildPhi, lr, it_number) = torch.load(filepath)
+
+    with torch.no_grad():
+        fplot, ax = plt.subplots(2, 3, figsize=(27,9))
+
+        ## true function
+        ax[0,0].set_title('Original')
+        pc = ax[0,0].imshow(Z, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+        pc.set_clim(vmin,vmax)
+
+        ## fbp
+        ax[0,1].set_title('FBP')
+        pc = ax[0,1].imshow(rec_fbp, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+        pc.set_clim(vmin,vmax)
+
+        ## prediction
+        ax[0,2].set_title('GP prediction')
+        Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+        pc = ax[0,2].imshow(Zp, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+        pc.set_clim(vmin,vmax)
+
+        ## GP standard div
+        ax[1,0].set_title('GP std')
+        Zstd = np.reshape(cov_f.detach().sqrt().numpy(),(ntx,nty))
+        pc = ax[1,0].imshow(Zstd, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+        pc.set_clim(vmin,vmax)
+
+        # plot latent outputs
+        train_m = model(test_x)
+        for w in range(diml):
+            ax[1,w+1].set_title('latent output'+str(w+1))
+            Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+            pc = ax[1,w+1].imshow(Zm, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            pc.set_clim(vmin,vmax)
+
+        if w==0:
+            ax[1,2].set_axis_off()
+
+        ## shared colorbar
+        fplot.colorbar(pc, ax=ax.ravel().tolist())
+
+        plt.show()
+
+    # RMS error
+    ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
+    error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+    print('RMS error: %.10f' %(error.item()))
+    print('RMS error fbp: %.10f' %(err_fbp))
+
 ### function that returns index vector
 def getIndex(m):
     mt= np.prod(m) # total nr of basis functions
@@ -1056,9 +1140,17 @@ def stepsin_int(points_lims,omega=4*math.pi):
 ### 2D
 def circlefunc(points):
     y=-torch.ones(points.size(0))
-    y[torch.sum(points.pow(2),dim=1).view(y.size())>0.35]=1
-    y[torch.sum(points.pow(2),dim=1).view(y.size())>0.65]=-1
-    indx1=torch.abs(points[:,0]).view(y.size())<0.15
-    indx2=torch.abs(points[:,1]).view(y.size())<0.15
+    y[torch.sum((points-0.5).pow(2),dim=1).sqrt().view(y.size())>0.22]=1
+    y[torch.sum((points-0.5).pow(2),dim=1).sqrt().view(y.size())>0.35]=-1
+    indx1=torch.abs(points[:,0]-0.5).view(y.size())<0.075
+    indx2=torch.abs(points[:,1]-0.5).view(y.size())<0.075
     y[indx1*indx2]=1
+    return y
+
+def circlefunc2(points):
+    y=torch.zeros(points.size(0))
+    y[torch.sum((points-0.5).pow(2),dim=1).sqrt().view(y.size())<0.35]=1
+    indx1=torch.abs(points[:,0]-0.5).view(y.size())<0.1
+    indx2=torch.abs(points[:,1]-0.5).view(y.size())<0.1
+    y[indx1*indx2]=0
     return y

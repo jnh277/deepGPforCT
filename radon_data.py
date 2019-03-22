@@ -40,13 +40,13 @@ def getdata(dataname='circle_square',nproj=180,nmeas_proj=100,image_res=3000, D=
         X,Y = np.meshgrid(x, x)
         Rad = np.sqrt(np.power(X-R,2)+np.power(Y-R,2))
         image = np.zeros((nr,nr))
-        image[Rad<0.95*R]=1
-        image[(X<0.65*D)*(X>0.35*D)*(Y<0.65*D)*(Y>0.35*D)]=0
+        image[Rad<0.7*R]=1
+        image[(X<0.6*D)*(X>0.4*D)*(Y<0.6*D)*(Y>0.4*D)]=0
         if nt is not None:
             Rad = np.sqrt(np.power(Xt-R,2)+np.power(Yt-R,2))
             image_t = np.zeros((nt,nt))
-            image_t[Rad<0.95*R]=1
-            image_t[(Xt<0.65*D)*(Xt>0.35*D)*(Yt<0.65*D)*(Yt>0.35*D)]=0
+            image_t[Rad<0.7*R]=1
+            image_t[(Xt<0.6*D)*(Xt>0.4*D)*(Yt<0.6*D)*(Yt>0.4*D)]=0
         else:
             image_t = image[0::nextract,0::nextract]
 
