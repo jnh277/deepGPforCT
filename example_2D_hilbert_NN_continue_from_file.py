@@ -13,9 +13,9 @@ from LBFGS import FullBatchLBFGS
 # use integral
 integral = True
 
-filepath = 'mymodel_phantom_1300'
+filepath = 'mymodel_phantom_1700'
 
-justaplot = True
+justaplot = False
 
 if justaplot:
 	vmin = -0.5
@@ -24,7 +24,7 @@ if justaplot:
 else:
 	(model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
 				ntx, nty, test_x, dom_points, m, diml, mt,
-				test_f, cov_f, noise_std, nLL, buildPhi, lr, it_number) = \
+				test_f, cov_f, noise_std, nLL, buildPhi, opti_state, it_number) = \
 	torch.load(filepath)
 
 	# function that computes the solution and save stuff (declared here to enable usage within the optimisation loop)
@@ -44,11 +44,12 @@ else:
 		# save variables
 		torch.save((model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
 				ntx, nty, test_x, dom_points, m, diml, mt,
-				test_f, cov_f, noise_std, nLL, buildPhi, optimiser.param_groups[0]['lr'], it_number),
+				test_f, cov_f, noise_std, nLL, buildPhi, optimiser.__getstate__(), it_number),
 			   'mymodel_'+dataname+'_'+str(it_number))
 
 	# optimiser
-	optimiser = Adam_ls(model.parameters(), lr=lr, weight_decay=0.0)  # Adam with line search
+	optimiser = Adam_ls(model.parameters())  # Adam with line search
+	optimiser.__setstate__(opti_state)
 
 	# compute initial loss
 	def closure():
@@ -60,12 +61,11 @@ else:
 
 	saveFreq = 50 # how often do you wanna save the model?
 
-	training_iterations = 1000
-	for i in range(it_number+1, it_number+training_iterations):
+	training_iterations = 5000
+	for i in range(it_number, it_number+training_iterations):
 		# build phi
-
-		options = {'line_search': True, 'closure': closure, 'max_ls': 10, 'ls_debug': False, 'inplace': False, 'interpolate': False,
-			   'eta': 3, 'c1': 1e-6, 'decrease_lr_on_max_ls': 0.5, 'increase_lr_on_min_ls': 2}
+		options = {'line_search': True, 'closure': closure, 'max_ls': 5, 'ls_debug': True, 'inplace': False, 'interpolate': False,
+				   'eta': 3, 'c1': 1e-6, 'decrease_lr_on_max_ls': 0.5, 'increase_lr_on_min_ls': 2}
 
 		optimiser.zero_grad()  # zero gradients
 		loss.backward()  # Backprop derivatives

@@ -1014,8 +1014,9 @@ def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=N
 def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.coolwarm):
 
     (model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
-                    ntx, nty, test_x, dom_points, m, diml, mt,
-                    test_f, cov_f, noise_std, nLL, buildPhi, lr, it_number) = torch.load(filepath)
+            ntx, nty, test_x, dom_points, m, diml, mt,
+            test_f, cov_f, noise_std, nLL, buildPhi, opti_state, it_number) = \
+        torch.load(filepath)
 
     with torch.no_grad():
         fplot, ax = plt.subplots(2, 3, figsize=(27,9))

@@ -25,7 +25,7 @@ if integral:
     # import data
     dataname='phantom'
     print('Getting data...')
-    train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp = rd.getdata(dataname=dataname,image_res=3e3,nmeas_proj=100,
+    train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp = rd.getdata(dataname=dataname,image_res=3e3,nmeas_proj=10,
                                                                            nproj=20,nt=None,sigma_n=noise_std,reconstruct_fbp=True)
     print('Data ready!')
 
@@ -80,7 +80,7 @@ if points:
     dom_points = torch.from_numpy(np.concatenate((np.reshape(Xd,(nd,1)),np.reshape(Yd,(nd,1))),axis=1)).float()
 
 # set appr params
-m = [60] # nr of basis functions in each latent direction: Change this to add latent outputs
+m = [20] # nr of basis functions in each latent direction: Change this to add latent outputs
 diml=len(m) # nr of latent outputs
 mt= np.prod(m) # total nr of basis functions
 
@@ -130,7 +130,7 @@ def compute_and_save(it_number):
         # save variables
         torch.save((model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
                     ntx, nty, test_x, dom_points, m, diml, mt,
-                    test_f, cov_f, noise_std, nLL, buildPhi, optimiser.param_groups[0]['lr'], it_number),
+                    test_f, cov_f, noise_std, nLL, buildPhi, optimiser.__getstate__(), it_number),
                    'mymodel_'+dataname+'_'+str(it_number))
 
 # optimiser
@@ -149,11 +149,11 @@ loss = closure()
 
 saveFreq=3 # how often do you wanna save the model?
 
-training_iterations = 5000
+training_iterations = 6
 for i in range(training_iterations):
     # build phi
 
-    options = {'line_search': True, 'closure': closure, 'max_ls': 5, 'ls_debug': False, 'inplace': False, 'interpolate': False,
+    options = {'line_search': True, 'closure': closure, 'max_ls': 5, 'ls_debug': True, 'inplace': False, 'interpolate': False,
                'eta': 3, 'c1': 1e-6, 'decrease_lr_on_max_ls': 0.5, 'increase_lr_on_min_ls': 2}
 
     optimiser.zero_grad()  # zero gradients
