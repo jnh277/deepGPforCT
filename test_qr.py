@@ -44,8 +44,8 @@ print(w.grad)  # this should equal 1.3938 which it does
 
 
 
-input = (torch.randn(3,3,dtype=torch.double,requires_grad=True))
-test = gradcheck(qr, input, eps=1e-6, atol=1e-4)
+input = (torch.randn(10,10,dtype=torch.double,requires_grad=True))
+test = gradcheck(qr, input, eps=1e-8, atol=1e-10)
 print('Gradient check')
 print(test)
 
