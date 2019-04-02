@@ -5,10 +5,10 @@ import radon_data as rd
 
 nmeas_proj = 100
 nproj = 20
-nt = 1000
+nt = None#1000
 
 # noise level
-noise_std = 0.005
+noise_std = 0.001
 
 # import data
 dataname='phantom'
