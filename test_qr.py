@@ -18,8 +18,10 @@ class qr_wrapper(torch.autograd.Function):
         q = ctx.q
         r = ctx.r
         rplus = torch.pinverse(r)
+        # print(rplus)
         tmp = torch.tril(r.mm(grad_output.t()) - grad_output.mm(r.t()), -1)
-        return q.mm(grad_output + tmp.mm(rplus))
+        # print(tmp)
+        return q.mm(grad_output + tmp.mm(rplus.t()))
 
 
 
@@ -41,5 +43,10 @@ print(w.grad)  # this should equal 1.3938 which it does
 
 
 
+
+input = (torch.randn(3,3,dtype=torch.double,requires_grad=True))
+test = gradcheck(qr, input, eps=1e-6, atol=1e-4)
+print('Gradient check')
+print(test)
 
 # v.backward()
