@@ -10,16 +10,18 @@ class qr_wrapper(torch.autograd.Function):
         # ctx is a context object that can be used to stash information
         # for backward computation
         q, r = torch.qr(input)
-        ctx.q = q
-        ctx.r = r
+        # ctx.q = q
+        # ctx.r = r
+        ctx.save_for_backward(q,r)
         return r
 
     @staticmethod
     def backward(ctx, grad_output):
         # We return as many input gradients as there were arguments.
         # Gradients of non-Tensor arguments to forward must be None.
-        q = ctx.q
-        r = ctx.r
+        # q = ctx.q
+        # r = ctx.r
+        q,r, = ctx.saved_tensors
         rplus = torch.pinverse(r)
         # print(rplus)
         tmp = torch.tril(r.mm(grad_output.t()) - grad_output.mm(r.t()), -1)
