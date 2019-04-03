@@ -13,18 +13,18 @@ from Adam_ls import Adam_ls
 from LBFGS import FullBatchLBFGS
 
 # select true function
-truefunc=gprh.stepsin
-truefunc_int=gprh.step_int
+truefunc = gprh.step
+truefunc_int = gprh.step_int
 
 # use integral or point measurements
 integral = False
-points = not(integral)
+points = not integral
 
 if integral:
     meastype = 'int'
 
     noise_std = 0.001
-    n = 30
+    n = 50
 
     # inputs (integral limits)
     train_x = torch.rand(n,2)
@@ -42,7 +42,7 @@ if integral:
 if points:
     meastype = 'point'
 
-    noise_std = 0.001
+    noise_std = 0.01
     n = 50
     train_x = torch.linspace(0,1, n).unsqueeze(-1)
     train_y = truefunc(train_x) + torch.randn(n) * noise_std
@@ -59,7 +59,7 @@ diml = len(m)  # nr of latent outputs
 mt = np.prod(m)  # total nr of basis functions
 
 # select model
-model = gpnets.gpnet1_1_3(sigma_f=1,lengthscale=0.1,sigma_n=1)
+model = gpnets.gpnet1_1_3(sigma_f=1,lengthscale=1,sigma_n=1)
 print('Number of parameters: %d' %model.npar)
 
 # loss function
@@ -73,7 +73,7 @@ tun = 4 # scaling parameter for L (nr of "std":s)
 buildPhi = gprh.buildPhi(m,type=meastype,ni=ni,int_method=int_method,tun=tun)
 
 # optimiser
-optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=10)  # Adam with line search
+optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=10)
 
 # closure: should return the loss
 def closure():
@@ -87,8 +87,8 @@ loss = closure()  # compute initial loss
 
 training_iterations = 50
 for i in range(training_iterations):
-    options = {'closure': closure, 'max_ls': 10, 'ls_debug': False, 'inplace': False, 'interpolate': False,
-               'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.5, 'increase_lr_on_min_ls': 2}
+    options = {'closure': closure, 'max_ls': 5, 'ls_debug': False, 'inplace': False, 'interpolate': False,
+               'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
 
     optimiser.zero_grad() # zero gradients
     loss.backward() # propagate derivatives

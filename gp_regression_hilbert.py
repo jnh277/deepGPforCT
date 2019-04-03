@@ -43,8 +43,8 @@ class GP_new(nn.Module):
         lprod=torch.ones(1)
         omega_sum=torch.zeros(m,1)
         for q in range(diml):
-            lprod*=lengthscale[q].pow(2)
-            omega_sum+=lengthscale[q].pow(2)*sq_lambda[:,q].view(m,1).pow(2)
+            lprod = lprod.mul( lengthscale[q].pow(2) )
+            omega_sum = omega_sum.add( lengthscale[q].pow(2)*sq_lambda[:,q].view(m,1).pow(2) )
 
         inv_lambda_diag = ( sigma_f.pow(-2) .mul( lprod.pow(-0.5) ) .mul(
                                   torch.exp( 0.5*omega_sum ) ) ).mul(math.pow(2.0*math.pi,-diml/2)).view(m)
@@ -59,7 +59,7 @@ class GP_new(nn.Module):
         nt = m_test.size(0)
         phi_star=torch.ones(m,nt)
         for q in range(diml):
-            phi_star *= 1/math.sqrt(L[q]) * torch.sin(sq_lambda[:,q].view(m,1)*(m_test[:,q].view(1,nt)+L[q]))
+            phi_star = phi_star.mul( torch.sin(sq_lambda[:,q].view(m,1)*(m_test[:,q].view(1,nt)+L[q])).div(math.sqrt(L[q])) )
 
         # predict
         f_test = phi_star.t().mm(v)
@@ -101,8 +101,8 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
         lprod=torch.ones(1)
         omega_sum=torch.zeros(m,1)
         for q in range(dim):
-            lprod*=lengthscale[q].pow(2)
-            omega_sum+=lengthscale[q].pow(2)*sq_lambda[:,q].view(m,1).pow(2)
+            lprod = lprod.mul( lengthscale[q].pow(2) )
+            omega_sum = omega_sum.add( lengthscale[q].pow(2)*sq_lambda[:,q].view(m,1).pow(2) )
 
         inv_lambda_diag = ( torch.pow(lprod, -0.5).mul(torch.exp( 0.5*omega_sum )).mul(math.pow(2.0*math.pi,-dim/2)) ).view(m).mul(sigma_f.pow(-2))
 
@@ -153,7 +153,7 @@ class NegLOOCrossValidation_phi_noBackward(nn.Module):
             lprod = lprod.mul( lengthscale[q].pow(2) )
             omega_sum = omega_sum.add( lengthscale[q].pow(2)*sq_lambda[:,q].view(m,1).pow(2) )
 
-        lambda_diag = ( torch.pow(lprod, 0.5).mul(torch.exp( omega_sum.mul(0.5).neg() )).mul(math.pow(2.0*math.pi,dim/2.0)) ).view(m).mul(sigma_f.pow(2))
+        lambda_diag = torch.pow(lprod, 0.5).mul(torch.exp( omega_sum.mul(0.5).neg() )).mul(math.pow(2.0*math.pi,dim/2.0)).view(m).mul(sigma_f.pow(2))
 
         phi_lam = torch.cat( ( lambda_diag.sqrt().diag().mm(phi.t()) , torch.eye(n).mul(sigma_n) ), 0)  # [Phi; sign*sqrt(Lambda^-1)]
         r = myqr(phi_lam)

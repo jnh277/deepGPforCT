@@ -99,11 +99,11 @@ class gpnet1_1_3(torch.nn.Module):
         Description:
         """
         super(gpnet1_1_3, self).__init__()
-        self.linear1 = torch.nn.Linear(1, 8)
+        self.linear1 = torch.nn.Linear(1, 12)
         self.tanh1 = torch.nn.Tanh()
-        self.linear2 = torch.nn.Linear(8, 4)
-        self.tanh2 = torch.nn.Tanh()
-        self.linear3 = torch.nn.Linear(4, 1)
+        self.linear2 = torch.nn.Linear(12, 6)
+        self.tanh2 = torch.nn.Sigmoid()
+        self.linear3 = torch.nn.Linear(6, 1)
         # self.sigm = torch.nn.Hardtanh()
         # self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
 
