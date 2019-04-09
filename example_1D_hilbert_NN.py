@@ -1,7 +1,7 @@
 import torch
 import math
 from matplotlib import pyplot as plt
-import gp_regression_hilbert as gprh
+import gp_regression_hilbert_old as gprh
 
 # added these lines to include PyTorch-LBFGS
 # import sys
@@ -43,12 +43,10 @@ class DeepGP(torch.nn.Module):
         self.tanh3 = torch.nn.Tanh()
         self.linear4 = torch.nn.Linear(6, 1)
         self.tanh4 = torch.nn.Sigmoid()
-<<<<<<< HEAD
         self.scale = 10.0
-=======
+
         # self.scale = 5.0
         self.scale = torch.nn.Parameter(torch.Tensor([1.0]))
->>>>>>> cb0a9a3b03da5cb47d0886354b0c67f45ebc89cb
         self.gp = gprh.GP_1D(sigma_f=1.0, lengthscale=1, sigma_n=2*noise_std)
 
     def forward(self, x_train, y_train=None, m=None, x_test=None):

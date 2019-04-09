@@ -128,8 +128,9 @@ class NegMarginalLogLikelihood_phi_noBackward(nn.Module):
 
 
 class NegLOOCrossValidation_phi_noBackward(nn.Module):
-    def __init__(self):
+    def __init__(self, batch_size=None):
         super(NegLOOCrossValidation_phi_noBackward, self).__init__()
+        self.batch_size = batch_size
 
     def forward(self, log_sigma_f, log_lengthscale, log_sigma_n, phi, y_train, sq_lambda):
         # extract hyperparameters
@@ -155,6 +156,11 @@ class NegLOOCrossValidation_phi_noBackward(nn.Module):
 
         lambda_diag = torch.pow(lprod, 0.5).mul(torch.exp( omega_sum.mul(0.5).neg() )).mul(math.pow(2.0*math.pi,dim/2.0)).view(m).mul(sigma_f.pow(2))
 
+        if self.batch_size is not None:
+            random_index = np.random.permutation(range(n))[0:self.batch_size]
+        else:
+            random_index = range(n)
+
         phi_lam = torch.cat( ( lambda_diag.sqrt().diag().mm(phi.t()) , torch.eye(n).mul(sigma_n) ), 0)  # [Phi; sign*sqrt(Lambda^-1)]
         r = myqr(phi_lam)
 
@@ -162,33 +168,21 @@ class NegLOOCrossValidation_phi_noBackward(nn.Module):
             return torch.from_numpy(np.array([np.inf])).float()  # tell the optimizer it's an illegal point
 
         tmp = torch.trtrs( y_train.view(n, 1) , r.t(), upper=False)[0]  # solves r^T*u=y, u=r*x
-        Kinv_y = torch.trtrs(tmp, r)[0] # solves r*x=u
+        Kinv_y = torch.trtrs(tmp, r)[0][random_index] # solves r*x=u
 
         tmp = torch.trtrs(torch.eye(n),r.t(),upper=False)[0]  # solves r^T*u = I, u = r*x
-        sigmas_sq = torch.trtrs(tmp,r)[0].diag().pow(-1) # solves r*x = u and extracts the inverse diagonal elements
+        sigmas_sq = torch.trtrs(tmp,r)[0].diag().pow(-1)[random_index] # solves r*x = u and extracts the inverse diagonal elements
 
-        return sigmas_sq.log() .add( y_train.sub( y_train.sub( Kinv_y.mul(sigmas_sq) ) ).pow(2).div(sigmas_sq) ) .sum()
+        y_train = y_train[random_index]
+
+        loss = sigmas_sq.log() .add( y_train.sub( y_train.sub( Kinv_y.mul(sigmas_sq) ) ).pow(2).div(sigmas_sq) ) .sum() .div( y_train.numel() )
+
+        return loss
 
 
 ###########################################################################################
 ####################################### some other stuff (maybe put in another file)
 ###########################################################################################
-def choleskZ(Z):
-    # do numerical tweaks to ensure pos. def., qr hasn't got derivatives implemented...
-    Z = (Z+Z.t()).mul(0.5) # enforce symmetry
-    add = 1e-9
-    iteration=1.0
-    while True: # loop until cholesky works
-        try:
-            c = torch.cholesky(Z, upper=True)
-            break
-        except: # not positive definit
-            Z = Z + torch.eye(Z.size(0)).mul(add*np.exp(np.log(100.0)*iteration))
-            print('Not positive definite!!: %d' %(iteration))
-            iteration+=1
-            continue
-    return Z,c
-
 class buildPhi():
     def __init__(self,m,type='point',ni=400,int_method=3,tun=4,x0=None,unitvecs=None,Rlim=None):
         super(buildPhi, self).__init__()
@@ -233,7 +227,7 @@ class buildPhi():
         mtest=model(dom_points).abs()
         for q in range(diml):
             L[q] = max(1.2*mtest[:,q].max(), math.pi*m[q]*model.gp.log_lengthscale[q].exp().detach().abs()/(2.0*self.tun) )
-            sq_lambda = math.pi*self.index / (2.0*L)
+        sq_lambda = math.pi*self.index / (2.0*L)
 
         if self.type=='int':
             # st = time.time()
@@ -356,7 +350,7 @@ def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=N
             # Z = np.reshape(truefunc(test_x).numpy(),(ntx,nty))
             pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
-            ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
+            ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'ro', alpha=0.3)
 
             ## prediction
             Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
@@ -409,7 +403,7 @@ def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=N
             plt.show()
 
 
-def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.coolwarm):
+def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.plasma,data=False):
     try:
         (model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
                 ntx, nty, test_x, dom_points, m, diml, mt,
@@ -475,6 +469,8 @@ def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.coolwarm):
             ax[0,0].set_title('Original')
             pc = ax[0,0].imshow(Z, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
+            if data:
+                ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
 
             ## prediction
             ax[0,1].set_title('GP prediction')

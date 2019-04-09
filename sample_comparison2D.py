@@ -7,6 +7,7 @@ import numpy as np
 import time
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import cm
 
 import sys
 sys.path.append('./opti_functions/')
@@ -15,16 +16,23 @@ from LBFGS import FullBatchLBFGS
 
 ########################################### Specify underlying  model ##################################################
 # select true function
-true_model = gpnets.gpnet1_1_4(sigma_f=1,lengthscale=0.1)
+true_model = gpnets.gpnet2_1_2(sigma_f=1,lengthscale=[1,1])
 
 # set appr params
-m = [100]  # nr of basis functions in each latent direction: Change this to add latent outputs
+m = [60]  # nr of basis functions in each latent direction: Change this to add latent outputs
 dim = len(m)
 mt = np.prod(m)  # total nr of basis functions
 tun = 4 # scaling parameter for L (nr of "std":s)
 buildPhi_mod = gprh.buildPhi(m,type='point',tun=tun)
-nprior = 500
-xprior = torch.linspace(0,1, nprior).unsqueeze(-1)
+
+npriorx = 60
+npriory = 60
+nprior = npriorx*npriory
+X = np.linspace(0, 1, npriorx)
+Y = np.linspace(0, 1, npriory)
+X,Y = np.meshgrid(X, Y)
+xprior = torch.from_numpy(np.concatenate((np.reshape(X,(nprior,1)),np.reshape(Y,(nprior,1))),axis=1)).float()
+
 phi, sq_lambda, _ = buildPhi_mod.getphi( true_model, m, nprior, mt, train_x=xprior )
 
 sigma_f = torch.exp(true_model.gp.log_sigma_f)
@@ -38,7 +46,7 @@ for q in range(dim):
 
 lambda_diag = torch.pow(lprod, 0.5).mul(torch.exp( omega_sum.mul(0.5).neg() )).mul(math.pow(2.0*math.pi,dim/2.0)).view(mt).mul(sigma_f.pow(2))
 
-Ka = phi.mm(lambda_diag.diag()).mm(phi.t()) + torch.eye(nprior).mul( 1e-4 )
+Ka = phi.mm(lambda_diag.diag()).mm(phi.t()) + torch.eye(nprior).mul( 1e-3 )
 
 L = torch.cholesky(Ka,upper=False)
 sample = L.mm(torch.randn(nprior,1)).detach().flatten()
@@ -48,7 +56,7 @@ sample = L.mm(torch.randn(nprior,1)).detach().flatten()
 # # Plot true function as solid black
 # ax.plot(xprior.detach().numpy(), sample.numpy(), 'k')
 ########################################################################################################################
-
+#
 # use integral or point measurements
 # integral = False
 points = True
@@ -63,8 +71,11 @@ if points:
     noise_std = train_y.abs().var().mul( 0.1 )
     train_y = train_y.add( torch.randn(n).mul(noise_std) )
 
+    ntx = npriorx
+    nty = npriory
     nt = nprior
     test_x = xprior
+
 
 m = [50]  # nr of basis functions in each latent direction: Change this to add latent outputs
 dim = len(m)
@@ -72,7 +83,7 @@ mt = np.prod(m)  # total nr of basis functions
 tun = 4 # scaling parameter for L (nr of "std":s)
 
 # select model
-model = gpnets.gpnet1_1_3(sigma_f=1,lengthscale=1,sigma_n=1)  # assumed model
+model = gpnets.gpnet2_1_1(sigma_f=1,lengthscale=[1],sigma_n=1)  # assumed model
 print('Number of parameters: %d' %model.npar)
 
 # loss function
@@ -117,27 +128,37 @@ test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test
 
 # plot
 with torch.no_grad():
-    fplot, ax = plt.subplots(1, 1, figsize=(4, 3))
+    fplot, ax = plt.subplots(2, 3, figsize=(27,9))
 
-    # Plot training data as black stars
-    ax.plot(train_x.numpy(), train_y.numpy(), 'r*')
 
-    # Plot true function as solid black
-    ax.plot(test_x.numpy(), sample.numpy(), 'k')
+    ## true function & meas
+    Z = np.reshape(sample.numpy(),(ntx,nty))
+    pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
+    # pc.set_clim(vmin,vmax)
+    ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
 
-    # plot 95% credibility region
-    upper = torch.squeeze(test_f, 1) + 2*cov_f.pow(0.5)
-    lower = torch.squeeze(test_f, 1) - 2*cov_f.pow(0.5)
-    ax.fill_between(torch.squeeze(test_x,1).numpy(), lower.numpy(), upper.numpy(), alpha=0.5)
+    ## prediction
+    Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+    pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
+    # pc.set_clim(vmin,vmax)
 
-    # plot predictions
-    ax.plot(test_x.numpy(), test_f.detach().numpy(), 'b')
+    ## covariance
+    Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
+    pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
+    # pc.set_clim(vmin,vmax)
 
     # plot latent outputs
     train_m = model(test_x)
     for w in range(dim):
-        ax.plot(test_x.numpy(), train_m[:,w].numpy(), 'g')
+        Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+        pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
+        # pc.set_clim(vmin,vmax)
 
-    #ax.set_ylim([-2, 2])
-    #ax.legend(['Observed Data', 'True', 'Predicted'])
+    ## shared colorbar
+    fplot.colorbar(pc, ax=ax.ravel().tolist())
+
     plt.show()
+
+
+error = sample.sub( test_f.squeeze() ) .pow(2) .mean() .sqrt()
+print('RMS error: %.10f' %(error.item()))
