@@ -59,8 +59,6 @@ class gpnet1_1_2(nn.Module):
         # nn.Sigmoid(),
         # nn.Linear(1, 1)
         )
-        # self.scale  = torch.nn.Parameter(torch.Tensor([1.0]))
-        # self.scale2 = torch.nn.Parameter(torch.Tensor([1.0]))
 
         self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n)
 
@@ -69,10 +67,10 @@ class gpnet1_1_2(nn.Module):
 
     def forward(self, x_train=None, y_train=None, phi=None, sq_lambda=None, L=None, x_test=None):
         if x_train is not None:
-            h =  self.mynet( x_train.clone() ) .add( x_train.clone() )
+            h =  self.mynet( x_train.clone() )
 
         if x_test is not None:
-            h2 =  self.mynet( x_test.clone() ) .add( x_test.clone() )
+            h2 =  self.mynet( x_test.clone() )
         else:
             h2 = None
         if y_train is not None:
@@ -671,6 +669,44 @@ class gpnet2_1_9(nn.Module):
             out = h
         return out
 
+
+class gpnet2_1_10(nn.Module):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+        """
+        Description: two outputs of same net, with sigmoid output
+        """
+        super(gpnet2_1_10, self).__init__()
+        self.mynet = nn.Sequential(
+        nn.Linear(2, 30),
+        nn.Tanh(),
+        nn.Linear(30, 20),
+        nn.Tanh(),
+        nn.Linear(20, 6),
+        nn.Tanh(),
+        nn.Linear(6, 2),
+        nn.Sigmoid(),
+        nn.Linear(2, 1)
+        )
+
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+
+        self.npar = numel(self)
+        self.pureGP = False
+
+    def forward(self, x_train=None, y_train=None, phi=None, sq_lambda=None, L=None, x_test=None):
+        if x_train is not None:
+            h = self.mynet( x_train.clone() )
+
+        if x_test is not None:
+            h2 = self.mynet( x_test.clone() )
+        else:
+            h2 = None
+        if y_train is not None:
+            out = self.gp(y_train,phi,sq_lambda,L,h2)
+        else:
+            out = h
+        return out
+
 ########################################################################################################################
 ### nets of type 2-2-gp ################################################################################################
 ########################################################################################################################
@@ -778,10 +814,10 @@ class gpnet2_2_3(nn.Module):
 
     def forward(self, x_train=None, y_train=None, phi=None, sq_lambda=None, L=None, x_test=None):
         if x_train is not None:
-            h = self.mynet( x_train.clone() ) .add( x_train.clone() )
+            h = self.mynet( x_train.clone() )
 
         if x_test is not None:
-            h2 = self.mynet( x_test.clone() ) .add( x_test.clone() )
+            h2 = self.mynet( x_test.clone() )
         else:
             h2 = None
         if y_train is not None:

@@ -16,7 +16,7 @@ from Adam_ls import Adam_ls
 from LBFGS import FullBatchLBFGS
 
 # use integral or point measurements
-integral = True
+integral = False
 point = not(integral)
 
 if integral:
@@ -33,8 +33,9 @@ if integral:
     dataname = 'phantom'
     print('Getting data...')
     train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp = rd.getdata(dataname=dataname,image_res=3e3,nmeas_proj=nmeas_proj,
-                                                                           nproj=nproj,nt=np.max((np.int(np.sqrt(10*n)),200)),
+                                                                           nproj=nproj,nt=80,
                                                                            sigma_n=noise_std,reconstruct_fbp=True)
+    # (train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp) = torch.load(dataname+'_tostart')
     print('Data ready!')
 
     # convert
@@ -66,8 +67,8 @@ if point:
     # # select true function
     # truefunc=gprh.circlefunc2
 
-    noise_std = 0.001
-    n = 800
+    noise_std = 0.0001
+    n = 600
 
     # import data
     dataname = 'circle_square'
@@ -120,7 +121,7 @@ mt = np.prod(m)  # total nr of basis functions
 ######### step 1
 model_basic = gpnets.gpnet2_2_1(sigma_f=1, lengthscale=[1,1], sigma_n=1) # pure GP
 saveFreq_basic = 2000 # how often do you wanna save the model?
-training_iterations_basic = 100
+training_iterations_basic = 50
 
 # loss function
 lossfu_basic = gprh.NegLOOCrossValidation_phi_noBackward()
@@ -136,8 +137,9 @@ training_iterations2 = 5000
 optimiser2 = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
 
 ######### step 3
-saveFreq = 50 # how often do you wanna save the model?
-training_iterations = 0
+m3 = [30,30]
+saveFreq = 400 # how often do you wanna save the model?
+training_iterations = 200
 
 # loss function
 lossfu = gprh.NegLOOCrossValidation_phi_noBackward()
@@ -145,6 +147,7 @@ lossfu = gprh.NegLOOCrossValidation_phi_noBackward()
 # optimiser
 optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
 
+step_3 = True
 
 #########################################################
 # STEP 1
@@ -248,6 +251,11 @@ for i in range(training_iterations2):
 #########################################################
 # STEP 3
 #########################################################
+# set appr params
+m = m3  # nr of basis functions in each latent direction: Change this to add latent outputs
+diml = len(m)  # nr of latent outputs
+mt = np.prod(m)  # total nr of basis functions
+
 # buildPhi object
 tun=4 # scaling parameter for L (nr of "std":s)
 if integral:
@@ -257,6 +265,7 @@ if integral:
 else:
     buildPhi = gprh.buildPhi(m,type=meastype,tun=tun)
 
+
 # regularizer todo: build this into the optimiser
 def regularizer(model):
     reg = torch.zeros(1)
@@ -264,33 +273,27 @@ def regularizer(model):
         reg = reg.add(  p.pow(2).sum()  )
     return reg
 
-# compute initial loss
-def closure():
-    optimiser.zero_grad()
-    global L
-    if integral:
-        phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points)
-    else:
-        phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
-    return lossfu(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi, train_y, sq_lambda) #+ regularizer(model).mul(1)
-loss = closure()
 
 def compute_and_save(it_number):
-    # update phi
-    if integral:
-        phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points)
+    if step_3:
+        # update phi
+        if integral:
+            phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points)
+        else:
+            phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
+
+        # now make predictions
+        test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
+
+        # RMS error
+        ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
+        error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+        print('RMS error: %.10f' %(error.item()))
+        if integral:
+            print('RMS error fbp: %.10f' %(err_fbp))
     else:
-        phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
-
-    # now make predictions
-    test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
-
-    # RMS error
-    ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
-    error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
-    print('RMS error: %.10f' %(error.item()))
-    if integral:
-        print('RMS error fbp: %.10f' %(err_fbp))
+        test_f = None
+        cov_f = None
 
     # save variables
     if integral:
@@ -305,29 +308,43 @@ def compute_and_save(it_number):
                    'mymodel_'+meastype+'_'+dataname+'_'+str(it_number))
 
 
-for i in range(training_iterations):
+if step_3:
+    # compute initial loss
+    def closure():
+        optimiser.zero_grad()
+        global L
+        if integral:
+            phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points)
+        else:
+            phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
+        return lossfu(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi, train_y, sq_lambda) #+ regularizer(model).mul(1)
+    loss = closure()
 
-    options = {'line_search': True, 'closure': closure, 'max_ls': 3, 'ls_debug': False, 'inplace': False, 'interpolate': False,
-               'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
+    for i in range(training_iterations):
 
-    optimiser.zero_grad() # zero gradients
+        options = {'line_search': True, 'closure': closure, 'max_ls': 3, 'ls_debug': False, 'inplace': False, 'interpolate': False,
+                   'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
 
-    loss.backward()  # Backprop derivatives
+        optimiser.zero_grad() # zero gradients
 
-    loss, lr, ls_step = optimiser.step(options=options) # compute new loss
+        loss.backward()  # Backprop derivatives
 
-    # print
-    gprh.optiprint(i, training_iterations, loss.item(), lr, ls_step, model, L)
+        loss, lr, ls_step = optimiser.step(options=options) # compute new loss
 
-    if (i+1)%saveFreq==0:
-        compute_and_save(i+1)
+        # print
+        gprh.optiprint(i, training_iterations, loss.item(), lr, ls_step, model, L)
+
+        if (i+1)%saveFreq==0:
+            compute_and_save(i+1)
 
 
-compute_and_save(training_iterations)
+    compute_and_save(training_iterations)
 
-try:  # since plotting might produce an error on remote machines
-    vmin = 0
-    vmax = 1
-    gprh.makeplot2D_new('mymodel_'+meastype+'_'+dataname+'_'+str(training_iterations),vmin=vmin,vmax=vmax,data=True)
-except:
-    pass
+    try:  # since plotting might produce an error on remote machines
+        vmin = 0
+        vmax = 1
+        gprh.makeplot2D_new('mymodel_'+meastype+'_'+dataname+'_'+str(training_iterations),vmin=vmin,vmax=vmax,data=True)
+    except:
+        pass
+else:
+    compute_and_save(0)
