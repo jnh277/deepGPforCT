@@ -10,7 +10,7 @@ sys.path.append('./opti_functions/')
 from Adam_ls import Adam_ls
 from LBFGS import FullBatchLBFGS
 
-filepath = 'mymodel_point_phantom_2000'
+filepath = 'mymodel_point_phantom_400'
 justaplot = True  # if you only want a plot
 
 # use integral
@@ -29,6 +29,9 @@ if justaplot:
 	vmax = 	1
 	gprh.makeplot2D_new(filepath,vmin=vmin,vmax=vmax)#,cmap=cm.Greys_r)
 else:
+	saveFreq = 200 # how often do you wanna save the model?
+	training_iterations = 5000
+
 	if integral:
 		(model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
 					ntx, nty, test_x, dom_points, m, diml, mt,
@@ -75,6 +78,13 @@ else:
 	optimiser = FullBatchLBFGS(model.parameters()) # make sure it's the same
 	optimiser.__setstate__(opti_state)
 
+	# regularizer todo: build this into the optimiser
+	def regularizer(model):
+		reg = torch.zeros(1)
+		for p in model.parameters():
+			reg = reg.add(  p.pow(2).mul(0.5).sum()  )
+		return reg
+
 	# compute initial loss
 	def closure():
 		optimiser.zero_grad()
@@ -83,12 +93,9 @@ else:
 			phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points)
 		else:
 			phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
-		return lossfu(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi, train_y, sq_lambda)
+		return lossfu(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi, train_y, sq_lambda) #+ regularizer(model).mul(0.00001)
 	loss = closure()
 
-	saveFreq = 500 # how often do you wanna save the model?
-
-	training_iterations = 3000
 	for i in range(it_number, it_number+training_iterations):
 		# build phi
 		options = {'closure': closure, 'max_ls': 3, 'ls_debug': False, 'inplace': False, 'interpolate': False,

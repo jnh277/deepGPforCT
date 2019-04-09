@@ -188,7 +188,7 @@ class Adam_ls_alt(Optimizer):
         self._numel_cache = None
 
     def __setstate__(self, state):
-        super(Adam_ls, self).__setstate__(state)
+        super(Adam_ls_alt, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault('amsgrad', False)
 

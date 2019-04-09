@@ -281,8 +281,8 @@ class Adam_ls(Optimizer):
                 grad.add_(group['weight_decay'], p.data)
 
             # Decay the first and second moment running average coefficient
-            exp_avg.mul_(beta1).add_(1 - beta1, grad) # mt
-            exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad) # vt
+            exp_avg.mul_(beta1).add_(1 - beta1, grad) # mt, note inplace update => state['exp_avg'] is updated directly
+            exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad) # mt, note inplace update => state['exp_avg_sq'] is updated directly
             if amsgrad:
                 # Maintains the maximum of all 2nd moment running avg. till now
                 torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)

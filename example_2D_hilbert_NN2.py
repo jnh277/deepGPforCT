@@ -16,24 +16,25 @@ from Adam_ls import Adam_ls
 from LBFGS import FullBatchLBFGS
 
 # use integral or point measurements
-integral = False
+integral = True
 point = not(integral)
 
 if integral:
     meastype='int'
 
     # noise level
-    noise_std = 0.001
+    noise_std = 0.0001
 
-    nmeas_proj = 5
-    nproj = 20
+    nmeas_proj = 185
+    nproj = 9
     n = nmeas_proj*nproj
 
     # import data
-    dataname = 'circle_square'
+    dataname = 'phantom'
     print('Getting data...')
     train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp = rd.getdata(dataname=dataname,image_res=3e3,nmeas_proj=nmeas_proj,
-                                                                           nproj=nproj,nt=5*np.int(np.sqrt(6*n)),sigma_n=noise_std,reconstruct_fbp=True)
+                                                                           nproj=nproj,nt=np.max((np.int(np.sqrt(10*n)),200)),
+                                                                           sigma_n=noise_std,reconstruct_fbp=True)
     print('Data ready!')
 
     # convert
@@ -66,12 +67,13 @@ if point:
     # truefunc=gprh.circlefunc2
 
     noise_std = 0.001
-    n = 1000
+    n = 800
 
     # import data
-    dataname = 'phantom'
+    dataname = 'circle_square'
     print('Getting data...')
-    train_y, train_x, X, Y, Z = rd.getdata(dataname=dataname,image_res=3e3,nt=np.max((np.int(np.sqrt(10*n)),np.int(np.sqrt(5000)))),sigma_n=noise_std,points=True,npmeas=n)
+    train_y, train_x, X, Y, Z = rd.getdata(dataname=dataname,image_res=3e3,nt=np.max((np.int(np.sqrt(10*n)),200)),
+                                           sigma_n=noise_std,points=True,npmeas=n)
     print('Data ready!')
 
     # convert
@@ -109,19 +111,45 @@ if point:
     Xd,Yd = np.meshgrid(Xd, Yd)
     dom_points = torch.from_numpy(np.concatenate((np.reshape(Xd,(nd,1)),np.reshape(Yd,(nd,1))),axis=1)).float()
 
+######################## details #########################
 # set appr params
 m = [40,40]  # nr of basis functions in each latent direction: Change this to add latent outputs
 diml = len(m)  # nr of latent outputs
 mt = np.prod(m)  # total nr of basis functions
 
-# select model
-# torch.manual_seed(9202720329292250078) # circle_square, gpnet2_1_8, noise_std = 0.001, n = 1000
-# torch.manual_seed(2)
-model_basic = gpnets.gpnet2_2_1(sigma_f=1, lengthscale=[1,1], sigma_n=1)
-print('Number of parameters: %d' %model_basic.npar)
+######### step 1
+model_basic = gpnets.gpnet2_2_1(sigma_f=1, lengthscale=[1,1], sigma_n=1) # pure GP
+saveFreq_basic = 2000 # how often do you wanna save the model?
+training_iterations_basic = 100
 
 # loss function
 lossfu_basic = gprh.NegLOOCrossValidation_phi_noBackward()
+
+# optimiser
+optimiser_basic = FullBatchLBFGS(model_basic.parameters(), lr=1, history_size=30)
+
+######### step 2/3
+model = gpnets.gpnet2_2_3(sigma_f=1,lengthscale=[1,1],sigma_n=1) # GP/NN
+
+######### step 2
+training_iterations2 = 5000
+optimiser2 = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
+
+######### step 3
+saveFreq = 50 # how often do you wanna save the model?
+training_iterations = 0
+
+# loss function
+lossfu = gprh.NegLOOCrossValidation_phi_noBackward()
+
+# optimiser
+optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
+
+
+#########################################################
+# STEP 1
+#########################################################
+print('Number of parameters: %d' %model_basic.npar)
 
 # buildPhi object
 tun=4 # scaling parameter for L (nr of "std":s)
@@ -132,18 +160,6 @@ if integral:
 else:
     buildPhi_basic = gprh.buildPhi(m,type=meastype,tun=tun)
 
-
-# optimiser
-optimiser_basic = FullBatchLBFGS(model_basic.parameters(), lr=1, history_size=30)
-# optimiser = Adam_ls(model.parameters(), lr=0.001)
-
-# regularizer todo: build this into the optimiser
-def regularizer(model):
-    reg = torch.zeros(1)
-    for p in model.parameters():
-        reg = reg.add(  p.pow(2).sum()  )
-    return reg
-
 # compute initial loss
 def closure_basic():
     optimiser_basic.zero_grad()
@@ -152,14 +168,35 @@ def closure_basic():
         phi, sq_lambda, L = buildPhi_basic.getphi(model_basic,m,n,mt,dom_points)
     else:
         phi, sq_lambda, L = buildPhi_basic.getphi(model_basic,m,n,mt,dom_points,train_x=train_x)
-    return lossfu_basic(model_basic.gp.log_sigma_f, model_basic.gp.log_lengthscale, model_basic.gp.log_sigma_n, phi, train_y, sq_lambda) #+ regularizer(model).mul(1)
+    return lossfu_basic(model_basic.gp.log_sigma_f, model_basic.gp.log_lengthscale, model_basic.gp.log_sigma_n, phi, train_y, sq_lambda)
 loss_basic = closure_basic()
 
-saveFreq = 200 # how often do you wanna save the model?
+# function that computes the solution and save stuff (declared here to enable usage within the optimisation loop)
+def compute_and_save_basic(it_number):
+    # update phi
+    if integral:
+        phi,sq_lambda,L = buildPhi_basic.getphi(model_basic,m,n,mt,dom_points)
+    else:
+        phi,sq_lambda,L = buildPhi_basic.getphi(model_basic,m,n,mt,dom_points,train_x=train_x)
 
-training_iterations = 250
+    # now make predictions
+    test_f, cov_f = model_basic(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
 
-for i in range(training_iterations):
+    # save variables
+    if integral:
+        torch.save((model_basic, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
+                    ntx, nty, test_x, dom_points, m, diml, mt,
+                    test_f, cov_f, noise_std, lossfu_basic, buildPhi_basic, optimiser_basic.__getstate__(), it_number),
+                   'mymodel_basic_'+meastype+'_'+dataname+'_'+str(it_number))
+    if point:
+        torch.save((model_basic, dataname, train_y, n, train_x, X, Y, Z,
+                    ntx, nty, test_x, dom_points, m, diml, mt,
+                    test_f, cov_f, noise_std, lossfu_basic, buildPhi_basic, optimiser_basic.__getstate__(), it_number),
+                   'mymodel_basic_'+meastype+'_'+dataname+'_'+str(it_number))
+
+    return test_f, cov_f
+
+for i in range(training_iterations_basic):
 
     options = {'line_search': True, 'closure': closure_basic, 'max_ls': 3, 'ls_debug': False, 'inplace': False, 'interpolate': False,
                'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
@@ -171,28 +208,24 @@ for i in range(training_iterations):
     loss_basic, lr, ls_step = optimiser_basic.step(options=options) # compute new loss
 
     # print
-    gprh.optiprint(i, training_iterations, loss_basic.item(), lr, ls_step, model_basic, L)
+    gprh.optiprint(i, training_iterations_basic, loss_basic.item(), lr, ls_step, model_basic, L)
 
-# update phi
-if integral:
-    phi,sq_lambda,L = buildPhi_basic.getphi(model_basic,m,n,mt,dom_points)
-else:
-    phi,sq_lambda,L = buildPhi_basic.getphi(model_basic,m,n,mt,dom_points,train_x=train_x)
+test_f, cov_f = compute_and_save_basic(training_iterations_basic)
 
-# now make predictions
-test_f, cov_f = model_basic(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
+try:  # since plotting might produce an error on remote machines
+    vmin = 0
+    vmax = 1
+    gprh.makeplot2D_new('mymodel_basic_'+meastype+'_'+dataname+'_'+str(training_iterations_basic),vmin=vmin,vmax=vmax,data=True)
+except:
+    pass
 
 
 #########################################################
 # STEP 2
 #########################################################
+print('Number of parameters: %d' %model.npar)
+
 test_f = test_f.detach()
-
-# now train a neural net, hahaha!!!!
-# optimiser
-model = gpnets.gpnet2_2_3(sigma_f=1,lengthscale=[1,1],sigma_n=1)
-
-optimiser2 = FullBatchLBFGS(model.parameters(), lr=1, history_size=10)
 
 def closure2():
     optimiser2.zero_grad() # zero gradients
@@ -200,9 +233,8 @@ def closure2():
 
 loss2 = closure2()
 
-training_iterations =3000
-for i in range(training_iterations):
-    options = {'closure': closure2, 'max_ls': 5, 'ls_debug': False, 'inplace': False, 'interpolate': False,
+for i in range(training_iterations2):
+    options = {'line_search': True, 'closure': closure2, 'max_ls': 5, 'ls_debug': False, 'inplace': False, 'interpolate': False,
                'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
 
     optimiser2.zero_grad() # zero gradients
@@ -210,7 +242,7 @@ for i in range(training_iterations):
     loss2, lr, ls_iters = optimiser2.step(options=options) # compute new loss
 
     # print
-    print(i,loss2.item())
+    print('Iter %d/%d - Loss: %.5f - lr: %.5f - LS iters: %0.0f' %(i,training_iterations2,loss2.item(),lr,ls_iters))
 
 
 #########################################################
@@ -224,13 +256,6 @@ if integral:
     buildPhi = gprh.buildPhi(m,type=meastype,ni=ni,int_method=int_method,tun=tun,x0=x0,unitvecs=unitvecs,Rlim=Rlim)
 else:
     buildPhi = gprh.buildPhi(m,type=meastype,tun=tun)
-
-# loss function
-lossfu = gprh.NegLOOCrossValidation_phi_noBackward()
-
-# optimiser
-optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
-# optimiser = Adam_ls(model.parameters(), lr=0.001)
 
 # regularizer todo: build this into the optimiser
 def regularizer(model):
@@ -250,9 +275,35 @@ def closure():
     return lossfu(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi, train_y, sq_lambda) #+ regularizer(model).mul(1)
 loss = closure()
 
-saveFreq = 200 # how often do you wanna save the model?
+def compute_and_save(it_number):
+    # update phi
+    if integral:
+        phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points)
+    else:
+        phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
 
-training_iterations = 850
+    # now make predictions
+    test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
+
+    # RMS error
+    ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
+    error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+    print('RMS error: %.10f' %(error.item()))
+    if integral:
+        print('RMS error fbp: %.10f' %(err_fbp))
+
+    # save variables
+    if integral:
+        torch.save((model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
+                    ntx, nty, test_x, dom_points, m, diml, mt,
+                    test_f, cov_f, noise_std, lossfu, buildPhi, optimiser.__getstate__(), it_number),
+                   'mymodel_'+meastype+'_'+dataname+'_'+str(it_number))
+    if point:
+        torch.save((model, dataname, train_y, n, train_x, X, Y, Z,
+                    ntx, nty, test_x, dom_points, m, diml, mt,
+                    test_f, cov_f, noise_std, lossfu, buildPhi, optimiser.__getstate__(), it_number),
+                   'mymodel_'+meastype+'_'+dataname+'_'+str(it_number))
+
 
 for i in range(training_iterations):
 
@@ -268,77 +319,15 @@ for i in range(training_iterations):
     # print
     gprh.optiprint(i, training_iterations, loss.item(), lr, ls_step, model, L)
 
-# update phi
-if integral:
-    phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points)
-else:
-    phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
-
-# now make predictions
-test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
+    if (i+1)%saveFreq==0:
+        compute_and_save(i+1)
 
 
+compute_and_save(training_iterations)
 
-#########################################################
-# PLOT
-#########################################################
-vmin = -1
-vmax = 1
-if meastype=='point':
-    fplot, ax = plt.subplots(2, 3, figsize=(27,9))
-
-    ## true function & meas
-    # Z = np.reshape(truefunc(test_x).numpy(),(ntx,nty))
-    pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
-    pc.set_clim(vmin,vmax)
-    ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'ro', alpha=0.3)
-
-    ## prediction
-    Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
-    pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
-    pc.set_clim(vmin,vmax)
-
-    ## covariance
-    Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
-    pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
-    pc.set_clim(vmin,vmax)
-
-    # plot latent outputs
-    train_m = model(test_x)
-    for w in range(diml):
-        Zm = np.reshape(train_m[:,w].detach().numpy(),(ntx,nty))
-        pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
-        pc.set_clim(vmin,vmax)
-
-    ## shared colorbar
-    fplot.colorbar(pc, ax=ax.ravel().tolist())
-
-    plt.show()
-else:
-    fplot, ax = plt.subplots(2, 3, figsize=(27,9))
-
-    ## true function & meas
-    pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
-    pc.set_clim(vmin,vmax)
-
-    ## prediction
-    Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
-    pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
-    pc.set_clim(vmin,vmax)
-
-    ## covariance
-    Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
-    pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
-    pc.set_clim(vmin,vmax)
-
-    # plot latent outputs
-    train_m = model(test_x)
-    for w in range(diml):
-        Zm = np.reshape(train_m[:,w].detach().numpy(),(ntx,nty))
-        pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
-        pc.set_clim(vmin,vmax)
-
-    ## shared colorbar
-    fplot.colorbar(pc, ax=ax.ravel().tolist())
-
-    plt.show()
+try:  # since plotting might produce an error on remote machines
+    vmin = 0
+    vmax = 1
+    gprh.makeplot2D_new('mymodel_'+meastype+'_'+dataname+'_'+str(training_iterations),vmin=vmin,vmax=vmax,data=True)
+except:
+    pass
