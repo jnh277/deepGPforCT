@@ -683,9 +683,9 @@ class gpnet2_1_10(nn.Module):
         nn.Tanh(),
         nn.Linear(20, 6),
         nn.Tanh(),
-        nn.Linear(6, 2),
-        nn.Sigmoid(),
-        nn.Linear(2, 1)
+        nn.Linear(6, 1),
+        # nn.Sigmoid(),
+        # nn.Linear(2, 1)
         )
 
         self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)

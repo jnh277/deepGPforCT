@@ -16,14 +16,14 @@ from Adam_ls import Adam_ls
 from LBFGS import FullBatchLBFGS
 
 # use integral or point measurements
-integral = False
+integral = True
 point = not(integral)
 
 if integral:
     meastype='int'
 
     # noise level
-    noise_std = 0.0001
+    noise_std = 0.00001
 
     nmeas_proj = 185
     nproj = 9
@@ -73,7 +73,7 @@ if point:
     # import data
     dataname = 'circle_square'
     print('Getting data...')
-    train_y, train_x, X, Y, Z = rd.getdata(dataname=dataname,image_res=3e3,nt=np.max((np.int(np.sqrt(10*n)),200)),
+    train_y, train_x, X, Y, Z = rd.getdata(dataname=dataname,image_res=3e3,nt=80,
                                            sigma_n=noise_std,points=True,npmeas=n)
     print('Data ready!')
 
@@ -114,12 +114,13 @@ if point:
 
 ######################## details #########################
 # set appr params
-m = [40,40]  # nr of basis functions in each latent direction: Change this to add latent outputs
+m = [70,70]  # nr of basis functions in each latent direction: Change this to add latent outputs
 diml = len(m)  # nr of latent outputs
 mt = np.prod(m)  # total nr of basis functions
 
 ######### step 1
 model_basic = gpnets.gpnet2_2_1(sigma_f=1, lengthscale=[1,1], sigma_n=1) # pure GP
+# model_basic.pureGP=False
 saveFreq_basic = 2000 # how often do you wanna save the model?
 training_iterations_basic = 50
 
@@ -130,16 +131,19 @@ lossfu_basic = gprh.NegLOOCrossValidation_phi_noBackward()
 optimiser_basic = FullBatchLBFGS(model_basic.parameters(), lr=1, history_size=30)
 
 ######### step 2/3
-model = gpnets.gpnet2_2_3(sigma_f=1,lengthscale=[1,1],sigma_n=1) # GP/NN
+# model = gpnets.gpnet2_2_3(sigma_f=1,lengthscale=[1,1],sigma_n=1) # GP/NN
+# m3 = [50,50]
+
+model = gpnets.gpnet2_1_10(sigma_f=1,lengthscale=[1],sigma_n=1) # GP/NN
+m3 = [150]
 
 ######### step 2
-training_iterations2 = 5000
+training_iterations2 = 4000
 optimiser2 = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
 
 ######### step 3
-m3 = [30,30]
-saveFreq = 400 # how often do you wanna save the model?
-training_iterations = 200
+saveFreq = 4400 # how often do you wanna save the model?
+training_iterations = 600
 
 # loss function
 lossfu = gprh.NegLOOCrossValidation_phi_noBackward()
@@ -147,7 +151,7 @@ lossfu = gprh.NegLOOCrossValidation_phi_noBackward()
 # optimiser
 optimiser = FullBatchLBFGS(model.parameters(), lr=1, history_size=30)
 
-step_3 = True
+step_3 = False
 
 #########################################################
 # STEP 1

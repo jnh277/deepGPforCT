@@ -347,25 +347,25 @@ def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=N
             fplot, ax = plt.subplots(2, 3, figsize=(27,9))
 
             ## true function & meas
-            # Z = np.reshape(truefunc(test_x).numpy(),(ntx,nty))
+            # Z = np.reshape(truefunc(test_x).numpy(),(nty,ntx))
             pc = ax[0,0].pcolor(X,Y,Z, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
             ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'ro', alpha=0.3)
 
             ## prediction
-            Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+            Zp = np.reshape(test_f.detach().numpy(),(nty,ntx))
             pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
 
             ## covariance
-            Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
+            Zc = np.reshape(cov_f.detach().numpy(),(nty,ntx))
             pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
 
             # plot latent outputs
             train_m = model(test_x)
             for w in range(diml):
-                Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+                Zm = np.reshape(train_m[:,w].numpy(),(nty,ntx))
                 pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
                 pc.set_clim(vmin,vmax)
 
@@ -381,19 +381,19 @@ def makeplot2D(model,X,Y,ntx,nty,test_f,cov_f,diml,test_x=None,truefunc=None,Z=N
             pc.set_clim(vmin,vmax)
 
             ## prediction
-            Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
+            Zp = np.reshape(test_f.detach().numpy(),(nty,ntx))
             pc = ax[0,1].pcolor(X,Y,Zp, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
 
             ## covariance
-            Zc = np.reshape(cov_f.detach().numpy(),(ntx,nty))
+            Zc = np.reshape(cov_f.detach().numpy(),(nty,ntx))
             pc = ax[0,2].pcolor(X,Y,Zc, cmap=cm.coolwarm)
             pc.set_clim(vmin,vmax)
 
             # plot latent outputs
             train_m = model(test_x)
             for w in range(diml):
-                Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
+                Zm = np.reshape(train_m[:,w].numpy(),(nty,ntx))
                 pc = ax[1,w].pcolor(X,Y,Zm, cmap=cm.coolwarm)
                 pc.set_clim(vmin,vmax)
 
@@ -415,7 +415,7 @@ def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.plasma,data=False):
 
             ## true function
             ax[0,0].set_title('Original')
-            pc = ax[0,0].imshow(Z, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            pc = ax[0,0].imshow(np.flipud(Z), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
 
             ## fbp
@@ -425,23 +425,23 @@ def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.plasma,data=False):
 
             ## prediction
             ax[0,2].set_title('GP prediction')
-            Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
-            pc = ax[0,2].imshow(Zp, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            Zp = np.reshape(test_f.detach().numpy(),(nty,ntx))
+            pc = ax[0,2].imshow(np.flipud(Zp), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
 
             ## GP standard div
             ax[1,0].set_title('GP std')
-            Zstd = np.reshape(cov_f.detach().sqrt().numpy(),(ntx,nty))
-            pc = ax[1,0].imshow(Zstd, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            Zstd = np.reshape(cov_f.detach().sqrt().numpy(),(nty,ntx))
+            pc = ax[1,0].imshow(np.flipud(Zstd), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
 
             # plot latent outputs
             train_m = model(test_x)
             for w in range(diml):
                 ax[1,w+1].set_title('latent output'+str(w+1))
-                Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
-                pc = ax[1,w+1].imshow(Zm, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
-                pc.set_clim(vmin,vmax)
+                Zm = np.reshape(train_m[:,w].numpy(),(nty,ntx))
+                pc = ax[1,w+1].imshow(np.flipud(Zm), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+                # pc.set_clim(vmin,vmax)
 
             if w==0:
                 ax[1,2].set_axis_off()
@@ -451,11 +451,11 @@ def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.plasma,data=False):
 
             plt.show()
 
-        # RMS error
-        ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
-        error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
-        print('RMS error: %.10f' %(error.item()))
-        print('RMS error fbp: %.10f' %(err_fbp))
+        # # RMS error
+        # ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
+        # error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+        # print('RMS error: %.10f' %(error.item()))
+        # print('RMS error fbp: %.10f' %(err_fbp))
     except:
         (model, dataname, train_y, n, train_x, X, Y, Z,
                         ntx, nty, test_x, dom_points, m, diml, mt,
@@ -467,29 +467,29 @@ def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.plasma,data=False):
 
             ## true function
             ax[0,0].set_title('Original')
-            pc = ax[0,0].imshow(Z, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            pc = ax[0,0].imshow(np.flipud(Z), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
             if data:
                 ax[0,0].plot(train_x[:,0].numpy(),train_x[:,1].numpy(),'go', alpha=0.3)
 
             ## prediction
             ax[0,1].set_title('GP prediction')
-            Zp = np.reshape(test_f.detach().numpy(),(ntx,nty))
-            pc = ax[0,1].imshow(Zp, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            Zp = np.reshape(test_f.detach().numpy(),(nty,ntx))
+            pc = ax[0,1].imshow(np.flipud(Zp), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
 
             ## GP standard div
             ax[0,2].set_title('GP std')
-            Zstd = np.reshape(cov_f.detach().sqrt().numpy(),(ntx,nty))
-            pc = ax[0,2].imshow(Zstd, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+            Zstd = np.reshape(cov_f.detach().sqrt().numpy(),(nty,ntx))
+            pc = ax[0,2].imshow(np.flipud(Zstd), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
             pc.set_clim(vmin,vmax)
 
             # plot latent outputs
             train_m = model(test_x)
             for w in range(diml):
                 ax[1,w].set_title('latent output'+str(w+1))
-                Zm = np.reshape(train_m[:,w].numpy(),(ntx,nty))
-                pc = ax[1,w].imshow(Zm, extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
+                Zm = np.reshape(train_m[:,w].numpy(),(nty,ntx))
+                pc = ax[1,w].imshow(np.flipud(Zm), extent=(X.min(), X.max(), Y.min(), Y.max()), cmap=cmap)
                 pc.set_clim(vmin,vmax)
 
             if w==0:
@@ -501,10 +501,10 @@ def makeplot2D_new(filepath,vmin=-2,vmax=2,cmap=cm.plasma,data=False):
 
             plt.show()
 
-        # RMS error
-        ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
-        error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
-        print('RMS error: %.10f' %(error.item()))
+        # # RMS error
+        # ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
+        # error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
+        # print('RMS error: %.10f' %(error.item()))
 
 
 ### function that returns index vector
