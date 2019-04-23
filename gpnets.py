@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import gp_regression_hilbert as gprh
+from ExpPow import ExpPow
 
 # get the number of (trainable) parameters in model
 def numel(model):
@@ -15,13 +16,13 @@ def numel(model):
 ### nets of type 1-1-gp ################################################################################################
 ########################################################################################################################
 class gpnet1_1_1(nn.Module):
-    def __init__(self, sigma_f=1.0, lengthscale=1.0, sigma_n=1.0):
+    def __init__(self, sigma_f=1.0, lengthscale=1.0, sigma_n=1.0, covfunc=gprh.covfunc(type='se')):
         """
         Description: pure GP
         """
         super(gpnet1_1_1, self).__init__()
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = True
@@ -43,24 +44,27 @@ class gpnet1_1_1(nn.Module):
 
 
 class gpnet1_1_2(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
         super(gpnet1_1_2, self).__init__()
         self.mynet = nn.Sequential(
         nn.Linear(1, 20),
+        # ExpPow(),
         nn.Tanh(),
         nn.Linear(20, 8),
+        # nn.Sigmoid(),
         nn.Tanh(),
-        nn.Linear(8, 4),
+        nn.Linear(8, 2),
+        # ExpPow(),
         nn.Tanh(),
-        nn.Linear(4, 1),
+        nn.Linear(2, 1),
         # nn.Sigmoid(),
         # nn.Linear(1, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -81,7 +85,7 @@ class gpnet1_1_2(nn.Module):
 
 
 class gpnet1_1_3(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
@@ -96,7 +100,7 @@ class gpnet1_1_3(nn.Module):
         # nn.Linear(1, 1, bias=False)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -116,22 +120,22 @@ class gpnet1_1_3(nn.Module):
         return out
 
 class gpnet1_1_4(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=1, sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
         super(gpnet1_1_4, self).__init__()
         self.mynet = nn.Sequential(
-        nn.Linear(1, 6),
+        nn.Linear(1, 30),
         nn.Tanh(),
-        nn.Linear(6, 3),
+        nn.Linear(30, 20),
         nn.Tanh(),
-        nn.Linear(3, 1),
-        nn.Sigmoid(),
-        nn.Linear(1, 1, bias=False)
+        nn.Linear(20, 10),
+        nn.Tanh(),
+        nn.Linear(10, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=[lengthscale], sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -154,7 +158,7 @@ class gpnet1_1_4(nn.Module):
 ### nets of type 1-2-gp ################################################################################################
 ########################################################################################################################
 class gpnet1_2_1(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
@@ -179,7 +183,7 @@ class gpnet1_2_1(nn.Module):
         nn.Linear(6, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -206,30 +210,32 @@ class gpnet1_2_1(nn.Module):
 
 
 class gpnet1_2_2(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
         super(gpnet1_2_2, self).__init__()
         self.mynet1 = nn.Sequential(
-        nn.Linear(1, 10),
+        nn.Linear(1, 30),
         nn.Tanh(),
-        nn.Linear(10, 5),
+        # nn.Dropout(p=0.0),
+        nn.Linear(30, 20),
         nn.Tanh(),
-        nn.Linear(5, 1),
+        # nn.Dropout(p=0.0),
+        nn.Linear(20, 10),
         nn.Sigmoid(),
-        nn.Linear(1, 1, bias=False)
+        nn.Linear(10, 1)
         )
 
         self.mynet2 = nn.Sequential(
-        nn.Linear(1, 10),
-        nn.Tanh(),
-        nn.Linear(10, 5),
-        nn.Tanh(),
-        nn.Linear(5, 1)
+        # nn.Linear(1, 10),
+        # nn.Tanh(),
+        # nn.Linear(10, 5),
+        # nn.Tanh(),
+        # nn.Linear(5, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -245,7 +251,7 @@ class gpnet1_2_2(nn.Module):
             h21 = self.mynet1( x_test.clone() )
             h22 = self.mynet2( x_test.clone() )
 
-            h = torch.cat((h21,h22),1)
+            h2 = torch.cat((h21,h22),1)
         else:
             h2 = None
         if y_train is not None:
@@ -264,7 +270,7 @@ class gpnet1_2_2(nn.Module):
 ### nets of type 2-1-gp ################################################################################################
 ########################################################################################################################
 class gpnet2_1_1(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
@@ -281,7 +287,7 @@ class gpnet2_1_1(nn.Module):
         nn.Linear(1, 1, bias=False)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -302,7 +308,7 @@ class gpnet2_1_1(nn.Module):
 
 
 class gpnet2_1_2(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: smaller than above
         """
@@ -319,7 +325,7 @@ class gpnet2_1_2(nn.Module):
         # nn.Linear(1, 1, bias=False)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -340,7 +346,7 @@ class gpnet2_1_2(nn.Module):
 
 
 class gpnet2_1_3(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description:
         """
@@ -359,7 +365,7 @@ class gpnet2_1_3(nn.Module):
         nn.Linear(1, 1, bias=False)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -380,7 +386,7 @@ class gpnet2_1_3(nn.Module):
 
 
 class gpnet2_1_4(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: deeper than the previous net
         """
@@ -411,7 +417,7 @@ class gpnet2_1_4(nn.Module):
         nn.Linear(90, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -432,7 +438,7 @@ class gpnet2_1_4(nn.Module):
 
 
 class gpnet2_1_5(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: bit less neurons than previous
         """
@@ -455,7 +461,7 @@ class gpnet2_1_5(nn.Module):
         nn.Linear(30, 1),
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -476,7 +482,7 @@ class gpnet2_1_5(nn.Module):
 
 
 class gpnet2_1_6(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: small with no sigmoid
         """
@@ -493,7 +499,7 @@ class gpnet2_1_6(nn.Module):
         nn.Linear(6, 1),
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -514,7 +520,7 @@ class gpnet2_1_6(nn.Module):
 
 
 class gpnet2_1_7(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: exponential decay of neurons
         """
@@ -531,7 +537,7 @@ class gpnet2_1_7(nn.Module):
         nn.Linear(30, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -551,7 +557,7 @@ class gpnet2_1_7(nn.Module):
         return out
 
 class gpnet2_1_8(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: fewer neurons than previous
         """
@@ -593,7 +599,7 @@ class gpnet2_1_8(nn.Module):
         # self.scale  = torch.nn.Parameter(torch.Tensor([10.0]))
         # self.scale2 = torch.nn.Parameter(torch.Tensor([10.0]))
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -619,7 +625,7 @@ class gpnet2_1_8(nn.Module):
         return out
 
 class gpnet2_1_9(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: larger than previous
         """
@@ -650,7 +656,7 @@ class gpnet2_1_9(nn.Module):
         nn.Linear(40, 1)
         )
         
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -671,7 +677,7 @@ class gpnet2_1_9(nn.Module):
 
 
 class gpnet2_1_10(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: two outputs of same net, with sigmoid output
         """
@@ -688,7 +694,45 @@ class gpnet2_1_10(nn.Module):
         # nn.Linear(2, 1)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
+
+        self.npar = numel(self)
+        self.pureGP = False
+
+    def forward(self, x_train=None, y_train=None, phi=None, sq_lambda=None, L=None, x_test=None):
+        if x_train is not None:
+            h = self.mynet( x_train.clone() )
+
+        if x_test is not None:
+            h2 = self.mynet( x_test.clone() )
+        else:
+            h2 = None
+        if y_train is not None:
+            out = self.gp(y_train,phi,sq_lambda,L,h2)
+        else:
+            out = h
+        return out
+
+
+class gpnet2_1_11(nn.Module):
+    def __init__(self, sigma_f=1, lengthscale=[1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
+        """
+        Description: two outputs of same net, with sigmoid output
+        """
+        super(gpnet2_1_11, self).__init__()
+        self.mynet = nn.Sequential(
+        nn.Linear(2, 60),
+        nn.Tanh(),
+        nn.Linear(60, 30),
+        nn.Tanh(),
+        nn.Linear(30, 20),
+        nn.Tanh(),
+        nn.Linear(20, 6),
+        nn.Tanh(),
+        nn.Linear(6, 1),
+        )
+
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -711,13 +755,13 @@ class gpnet2_1_10(nn.Module):
 ### nets of type 2-2-gp ################################################################################################
 ########################################################################################################################
 class gpnet2_2_1(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: pure GP
         """
         super(gpnet2_2_1, self).__init__()
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = True
@@ -738,21 +782,21 @@ class gpnet2_2_1(nn.Module):
 
 
 class gpnet2_2_2(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: different nets: one  with sigmoid output
         """
         super(gpnet2_2_2, self).__init__()
         self.mynet1 = nn.Sequential(
-        nn.Linear(2, 20),
+        nn.Linear(2, 40),
+        nn.Tanh(),
+        nn.Linear(40, 20),
         nn.Tanh(),
         nn.Linear(20, 10),
         nn.Tanh(),
         nn.Linear(10, 5),
-        nn.Tanh(),
-        nn.Linear(5, 1),
         nn.Sigmoid(),
-        nn.Linear(1, 1, bias=False)
+        nn.Linear(5, 1)
         )
 
         self.mynet2 = nn.Sequential(
@@ -763,7 +807,7 @@ class gpnet2_2_2(nn.Module):
         nn.Linear(10, 1),
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -790,7 +834,7 @@ class gpnet2_2_2(nn.Module):
 
 
 class gpnet2_2_3(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: two outputs of same net, with sigmoid output
         """
@@ -807,7 +851,7 @@ class gpnet2_2_3(nn.Module):
         nn.Linear(2, 2)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -828,7 +872,7 @@ class gpnet2_2_3(nn.Module):
 
 
 class gpnet2_2_4(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: two outputs of same net, no sigmoid outputs
         """
@@ -851,7 +895,7 @@ class gpnet2_2_4(nn.Module):
         nn.Linear(20, 2),
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -872,7 +916,7 @@ class gpnet2_2_4(nn.Module):
 
 
 class gpnet2_2_5(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: as net 2_2_4, but fewer neurons
         """
@@ -895,7 +939,7 @@ class gpnet2_2_5(nn.Module):
         nn.Linear(20, 2)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -916,7 +960,7 @@ class gpnet2_2_5(nn.Module):
 
 
 class gpnet2_2_6(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: as net 2_2_4, but more neurons
         """
@@ -939,7 +983,7 @@ class gpnet2_2_6(nn.Module):
         nn.Linear(20, 2)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False
@@ -962,7 +1006,7 @@ class gpnet2_2_6(nn.Module):
 ### nets of type 2-3-gp ################################################################################################
 ########################################################################################################################
 class gpnet2_3_1(nn.Module):
-    def __init__(self, sigma_f=1, lengthscale=[1,1,1], sigma_n=1):
+    def __init__(self, sigma_f=1, lengthscale=[1,1,1], sigma_n=1, covfunc=gprh.covfunc(type='se')):
         """
         Description: three outputs of same net, no sigmoid outputs
         """
@@ -985,7 +1029,7 @@ class gpnet2_3_1(nn.Module):
         nn.Linear(20, 3)
         )
 
-        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n)
+        self.gp = gprh.GP_new(sigma_f=sigma_f, lengthscale=lengthscale, sigma_n=sigma_n, covfunc=covfunc)
 
         self.npar = numel(self)
         self.pureGP = False

@@ -1,26 +1,26 @@
 import numpy as np
 import math
 
+import scipy.io as sio
+
 from skimage.io import imread
 from skimage import data_dir
 from skimage.transform import radon, iradon, resize
 
-def getdata(dataname='circle_square',nproj=180,nmeas_proj=100,image_res=3000, R=1, nt=None, reconstruct_fbp=False, sigma_n=0, points=False, npmeas=1000):
+def getdata(dataname='circle_square',nproj=180,nmeas_proj=100,image_res=3000, R=1, nt=None, reconstruct_fbp=False, sigma_n=0, points=False, npmeas=1000, seed=0):
     """
     dataname: what data do you want?
     nproj: how many projections? chosen in 0<=theta<180
     nmeas_proj: number of measurements per projection
     image_res: resolution of the image used to compute the radon transform (the higher, the more accurate, but slower)
-    D:  we normalise the data to the domain 0 < x,y < D
+    R:  we normalise the data to the domain -R < x,y < R
     nt: size of test grid, default=nmeas_proj
-    reconstruct: return fbp reconstruction?
+    reconstruct_fbp: return fbp reconstruction?
     """
-    np.random.seed(seed=0)
-
-    # R = 0.5*D # radius
+    np.random.seed(seed=seed)
 
     nextract = int( np.ceil( image_res / (nmeas_proj-1) ) ) # used to extract desired data
-    nr = (nmeas_proj-1)* nextract + 1 # size of image that will be used for radon
+    nr = (nmeas_proj-1)* nextract + 1  # size of image that will be used for radon
 
     x = np.linspace(-R, R, nr)
     X,Y = np.meshgrid(x, x)
@@ -39,6 +39,54 @@ def getdata(dataname='circle_square',nproj=180,nmeas_proj=100,image_res=3000, R=
             image_t = resize(image_r, (nt,nt), mode='reflect', anti_aliasing=True)
         else:
             image_t = image[0::nextract,0::nextract]
+    elif dataname=='chest':
+        image_r = imread(data_dir + "/chest.png", as_gray=True)
+        image = resize(image_r, (nr,nr), mode='reflect', anti_aliasing=True)
+        if nt is not None:
+            image_t = resize(image_r, (nt,nt), mode='reflect', anti_aliasing=True)
+        else:
+            image_t = image[0::nextract,0::nextract]
+    elif dataname=='cheese':
+        if nt is None:
+            nt = nmeas_proj
+
+        from torch import load
+        image_t = resize(load('rec_fbp_gt'), (nt,nt), mode='reflect', anti_aliasing=True) *1120
+
+        if not(points):
+            if nmeas_proj!=140 or nproj!=15:
+                raise ValueError('Incorrect values')
+
+            data = sio.loadmat('sinogram15FullView.mat')
+            train_y = data['sinogram15FullView'][0::16,:]
+            theta = np.linspace(1., 337., 15, endpoint=True)
+
+            # number of measurements
+            n = np.size(train_y)
+
+            # build input data
+            r_grid = np.linspace(-R,R,nmeas_proj)
+            theta_grid = theta*math.pi/180
+            [thetas, r] = np.meshgrid(theta_grid,r_grid)  # angles
+            thetas = thetas.transpose().reshape(n,1)
+            r = r.transpose().reshape(n,1)
+
+            x0 = np.concatenate((r*np.cos(thetas), r*np.sin(thetas)),axis=1) # center points
+            unitvecs = np.concatenate((-np.sin(thetas), np.cos(thetas)),axis=1) # normal unit vectors
+
+            reconstruction_fbp = iradon(train_y, theta=theta, circle=True) *1120 /16
+            reconstruction_fbp = resize(reconstruction_fbp, (nt,nt), mode='reflect', anti_aliasing=True)
+
+            error_fbp = reconstruction_fbp - image_t
+            error_fbp = np.sqrt(np.mean(error_fbp**2))
+
+            return train_y.flatten('F'), n, x0, unitvecs, R, Xt, Yt, np.flipud(image_t).copy(), reconstruction_fbp, error_fbp
+        else:
+            indices = (np.prod(Xt.shape)*np.random.rand(npmeas)).astype(int)
+            train_y = np.flipud(image_t).flatten()[indices] + sigma_n * np.random.randn(npmeas)
+            train_x = np.concatenate( (Xt.flatten()[indices].reshape(train_y.size,1), Yt.flatten()[indices].reshape(train_y.size,1) ),axis=1)
+
+            return train_y, train_x, Xt, Yt, np.flipud(image_t).copy()
     elif dataname=='circle_square':
         Rad = np.sqrt(np.power(X,2)+np.power(Y,2))
         image = np.zeros((nr,nr))
@@ -77,7 +125,7 @@ def getdata(dataname='circle_square',nproj=180,nmeas_proj=100,image_res=3000, R=
         unitvecs = np.concatenate((-np.sin(thetas), np.cos(thetas)),axis=1) # normal unit vectors
 
         if reconstruct_fbp:
-            reconstruction_fbp = iradon(train_y, theta=theta, circle=True) * nmeas_proj # scale with number of meas/proj
+            reconstruction_fbp = iradon(train_y, theta=theta, circle=True) * nmeas_proj / R / 2.0  # scale with number of meas/proj & domain size
             # compute error
             error_fbp = reconstruction_fbp - image[0::nextract,0::nextract]
             error_fbp = np.sqrt(np.mean(error_fbp**2))

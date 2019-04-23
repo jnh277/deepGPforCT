@@ -10,114 +10,84 @@ sys.path.append('./opti_functions/')
 from Adam_ls import Adam_ls
 from LBFGS import FullBatchLBFGS
 
-filepath = 'mymodel_point_phantom_400'
-justaplot = True  # if you only want a plot
+filepath = 'mymodel_point_cheese_20'
+justaplot = True # if you only want a plot
 
 # use integral
 point = 'point' in filepath
 if point:
-	meastype = 'point'
-	integral = False
+    meastype = 'point'
+    integral = False
 elif 'int' in filepath:
-	meastype = 'int'
-	integral = True
+    integral = True
 else:
-	raise ValueError('Incorrect file path!')
+    raise ValueError('Incorrect file path!')
 
 if justaplot:
-	vmin = 0
-	vmax = 	1
-	gprh.makeplot2D_new(filepath,vmin=vmin,vmax=vmax)#,cmap=cm.Greys_r)
+    vmin = -0.2
+    vmax = 2
+    gprh.makeplot2D_new(filepath,vmin=vmin,vmax=vmax,data=True)#,cmap=cm.Greys_r)
 else:
-	saveFreq = 200 # how often do you wanna save the model?
-	training_iterations = 5000
+    saveFreq = 200 # how often do you wanna save the model?
+    training_iterations = 5000
 
-	if integral:
-		(model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
-					ntx, nty, test_x, dom_points, m, diml, mt,
-					test_f, cov_f, noise_std, lossfu, buildPhi, opti_state, it_number) = \
-		torch.load(filepath)
+    if integral:
+        (model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
+                    ntx, nty, test_x, dom_points, m, dim, mt,
+                    test_f, cov_f, noise_std, lossfu, buildPhi, opti_state, it_number) = \
+        torch.load(filepath)
 
-	if point:
-		(model, dataname, train_y, n, train_x, X, Y, Z,
-						ntx, nty, test_x, dom_points, m, diml, mt,
-						test_f, cov_f, noise_std, lossfu, buildPhi, opti_state, it_number) = \
-				torch.load(filepath)
+    if point:
+        (model, dataname, train_y, n, train_x, X, Y, Z,
+                        ntx, nty, test_x, dom_points, m, dim, mt,
+                        test_f, cov_f, noise_std, lossfu, buildPhi, opti_state, it_number) = \
+                torch.load(filepath)
 
-	# function that computes the solution and save stuff (declared here to enable usage within the optimisation loop)
-	def compute_and_save(it_number):
-		# update phi
-		if integral:
-			phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points)
-		else:
-			phi,sq_lambda,L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
+    # optimiser
+    optimiser = FullBatchLBFGS(model.parameters()) # make sure it's the same
+    optimiser.__setstate__(opti_state)
 
-		# now make predictions
-		test_f, cov_f = model(y_train=train_y, phi=phi, sq_lambda=sq_lambda, L=L, x_test=test_x)
+    if integral:
+        closure = gprh.gp_closure(model, meastype, buildPhi, lossfu, n, dom_points, train_y, regweight=regweight)
+    else:
+        closure = gprh.gp_closure(model, meastype, buildPhi, lossfu, n, dom_points, train_y, train_x=train_x, regweight=regweight)
 
-		# RMS error
-		ground_truth = torch.from_numpy(Z).float().view(np.size(Z))
-		error = torch.mean( (ground_truth - test_f.squeeze()).pow(2) ).sqrt()
-		print('RMS error: %.10f' %(error.item()))
-		if integral:
-			print('RMS error fbp: %.10f' %(err_fbp))
+    loss = closure()
 
-		# save variables
-		if integral:
-			torch.save((model, dataname, train_y, n, x0, unitvecs, Rlim, X, Y, Z, rec_fbp, err_fbp,
-						ntx, nty, test_x, dom_points, m, diml, mt,
-						test_f, cov_f, noise_std, lossfu, buildPhi, optimiser.__getstate__(), it_number),
-					   'mymodel_'+meastype+'_'+dataname+'_'+str(it_number))
-		if point:
-			torch.save((model, dataname, train_y, n, train_x, X, Y, Z,
-						ntx, nty, test_x, dom_points, m, diml, mt,
-						test_f, cov_f, noise_std, lossfu, buildPhi, optimiser.__getstate__(), it_number),
-					   'mymodel_'+meastype+'_'+dataname+'_'+str(it_number))
+    for i in range(training_iterations):
 
-	# optimiser
-	optimiser = FullBatchLBFGS(model.parameters()) # make sure it's the same
-	optimiser.__setstate__(opti_state)
+        options = {'line_search': True, 'closure': closure, 'max_ls': 3, 'ls_debug': False, 'inplace': False, 'interpolate': False,
+                   'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
 
-	# regularizer todo: build this into the optimiser
-	def regularizer(model):
-		reg = torch.zeros(1)
-		for p in model.parameters():
-			reg = reg.add(  p.pow(2).mul(0.5).sum()  )
-		return reg
+        optimiser.zero_grad() # zero gradients
+        loss.backward()  # Backprop derivatives
+        loss, lr, ls_step = optimiser.step(options=options) # compute new loss
 
-	# compute initial loss
-	def closure():
-		optimiser.zero_grad()
-		global L
-		if integral:
-			phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points)
-		else:
-			phi, sq_lambda, L = buildPhi.getphi(model,m,n,mt,dom_points,train_x=train_x)
-		return lossfu(model.gp.log_sigma_f, model.gp.log_lengthscale, model.gp.log_sigma_n, phi, train_y, sq_lambda) #+ regularizer(model).mul(0.00001)
-	loss = closure()
+        # print
+        gprh.optiprint(i, training_iterations, loss.item(), lr, ls_step, model, buildPhi.L)
 
-	for i in range(it_number, it_number+training_iterations):
-		# build phi
-		options = {'closure': closure, 'max_ls': 3, 'ls_debug': False, 'inplace': False, 'interpolate': False,
-				   'eta': 3, 'c1': 1e-4, 'decrease_lr_on_max_ls': 0.1, 'increase_lr_on_min_ls': 5}
+        if (i+1)%saveFreq==0:
+            if integral:
+                gprh.compute_and_save(model, meastype, dataname, train_y, n, X, Y, Z,
+                        ntx, nty, test_x, dom_points, m, dim, mt, noise_std, lossfu, buildPhi, optimiser, i+1,
+                         joint=True, x0=x0, unitvecs=unitvecs, Rlim=Rlim, rec_fbp=rec_fbp, err_fbp=err_fbp)
+            if point:
+                gprh.compute_and_save(model, meastype, dataname, train_y, n, X, Y, Z,
+                    ntx, nty, test_x, dom_points, m, dim, mt, noise_std, lossfu, buildPhi, optimiser, i+1,
+                     joint=True, train_x=train_x)
 
-		optimiser.zero_grad()  # zero gradients
-		loss.backward()  # Backprop derivatives
-		loss, lr, ls_step = optimiser.step(options=options) # compute new loss
+    if integral:
+        gprh.compute_and_save(model, meastype, dataname, train_y, n, X, Y, Z,
+                ntx, nty, test_x, dom_points, m, dim, mt, noise_std, lossfu, buildPhi, optimiser, training_iterations,
+                 joint=True, x0=x0, unitvecs=unitvecs, Rlim=Rlim, rec_fbp=rec_fbp, err_fbp=err_fbp)
+    if point:
+        gprh.compute_and_save(model, meastype, dataname, train_y, n, X, Y, Z,
+            ntx, nty, test_x, dom_points, m, dim, mt, noise_std, lossfu, buildPhi, optimiser, training_iterations,
+             joint=True, train_x=train_x)
 
-		# print
-		gprh.optiprint(i,training_iterations+it_number,loss.item(),lr,ls_step,model,L)
-
-		if (i+1-it_number)%saveFreq==0:
-			compute_and_save(i+1)
-
-
-	compute_and_save(it_number+training_iterations)
-
-	try:  # since plotting might produce an error on remote machines
-		vmin = 0
-		vmax = 1
-		gprh.makeplot2D_new('mymodel_'+meastype+'_'+dataname+'_'+str(it_number+training_iterations),vmin=vmin,vmax=vmax)
-	except:
-		pass
-
+    try:  # since plotting might produce an error on remote machines
+        vmin = 0
+        vmax = 1
+        gprh.makeplot2D_new('mymodel_'+meastype+'_'+dataname+'_'+str(it_number+training_iterations),vmin=vmin,vmax=vmax,data=True)
+    except:
+        pass
